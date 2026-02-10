@@ -4,6 +4,8 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
+require_once _PS_MODULE_DIR_ . 'ps_pts_reporting/classes/KpiReportService.php';
+
 class Ps_Pts_Reporting extends Module
 {
     public function __construct()
@@ -17,8 +19,8 @@ class Ps_Pts_Reporting extends Module
 
         parent::__construct();
 
-        $this->displayName = $this->l('PTS Reporting');
-        $this->description = $this->l('Daily KPI reporting and export for current month.');
+        $this->displayName = $this->l('Reporting PTS');
+        $this->description = $this->l('Reporting des KPI journaliers et export CSV.');
     }
 
     public function install()
@@ -47,7 +49,7 @@ class Ps_Pts_Reporting extends Module
         $tab->active = 1;
 
         foreach (Language::getLanguages(false) as $lang) {
-            $tab->name[(int) $lang['id_lang']] = 'PTS Reporting';
+            $tab->name[(int) $lang['id_lang']] = 'Reporting PTS';
         }
 
         return $tab->add();
@@ -63,5 +65,52 @@ class Ps_Pts_Reporting extends Module
         $tab = new Tab($idTab);
 
         return $tab->delete();
+    }
+
+    public function getLastMonthCsvPayload()
+    {
+        $service = new KpiReportService($this->context);
+        $rows = $service->getDailyKpisForLastMonth();
+
+        $date = new DateTime('first day of last month');
+        $filename = sprintf('pts_kpi_%s.csv', $date->format('Y_m'));
+        $content = $this->buildCsvContent($rows);
+
+        return [
+            'filename' => $filename,
+            'content' => $content,
+        ];
+    }
+
+    private function buildCsvContent(array $rows)
+    {
+        $out = fopen('php://temp', 'r+');
+        fputcsv($out, [
+            'date_commande',
+            'date_facture',
+            'cumul_ca_ht',
+            'cumul_mb_ht',
+            'cumul_marge_nette',
+            'cumul_pct_mb_ht',
+            'cumul_pct_marge_nette',
+        ]);
+
+        foreach ($rows as $row) {
+            fputcsv($out, [
+                $row['order_date'],
+                $row['invoice_date'],
+                $row['cumul_ca_ht'],
+                $row['cumul_mb_ht'],
+                $row['cumul_marge_nette'],
+                $row['cumul_pct_mb_ht'],
+                $row['cumul_pct_marge_nette'],
+            ]);
+        }
+
+        rewind($out);
+        $content = stream_get_contents($out);
+        fclose($out);
+
+        return $content;
     }
 }

@@ -11,8 +11,27 @@ class KpiReportService
 
     public function getDailyKpis($year, $month)
     {
-        $startDate = sprintf('%04d-%02d-01', $year, $month);
-        $endDate = $this->getMonthEndDate($year, $month);
+        return $this->getDailyKpisForPeriod($year, $month, $year, $month);
+    }
+
+    public function getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo)
+    {
+        $startDate = sprintf('%04d-%02d-01', $yearFrom, $monthFrom);
+        $endDate = $this->getMonthEndDate($yearTo, $monthTo);
+
+        if (strtotime($endDate) < strtotime($startDate)) {
+            $tmp = $yearFrom;
+            $yearFrom = $yearTo;
+            $yearTo = $tmp;
+
+            $tmp = $monthFrom;
+            $monthFrom = $monthTo;
+            $monthTo = $tmp;
+
+            $startDate = sprintf('%04d-%02d-01', $yearFrom, $monthFrom);
+            $endDate = $this->getMonthEndDate($yearTo, $monthTo);
+        }
+
         if ($endDate > date('Y-m-d')) {
             $endDate = date('Y-m-d');
         }
@@ -22,24 +41,35 @@ class KpiReportService
         return $this->computeCumulativeRows($dailyRows);
     }
 
+    public function getDailyKpisForLastMonth()
+    {
+        $start = new DateTime('first day of last month');
+        $end = new DateTime('last day of last month');
+
+        $dailyRows = $this->fetchDailyRows($start->format('Y-m-d'), $end->format('Y-m-d'));
+
+        return $this->computeCumulativeRows($dailyRows);
+    }
+
     private function fetchDailyRows($startDate, $endDate)
     {
         // TODO: compute MB and marge nette once depannage rules are confirmed.
         $sql = new DbQuery();
-        $sql->select('DATE(oi.date_add) AS day');
-        $sql->select('SUM(oi.total_products_tax_excl) AS ca_ht');
-        $sql->from('order_invoice', 'oi');
-        $sql->where("oi.date_add >= '" . pSQL($startDate . ' 00:00:00') . "'");
-        $sql->where("oi.date_add <= '" . pSQL($endDate . ' 23:59:59') . "'");
-        $sql->groupBy('DATE(oi.date_add)');
-        $sql->orderBy('DATE(oi.date_add) ASC');
+        $sql->select('DATE(o.date_add) AS order_day');
+        $sql->select('DATE(o.invoice_date) AS invoice_day');
+        $sql->select('o.total_products AS ca_ht');
+        $sql->from('orders', 'o');
+        $sql->where("o.date_add >= '" . pSQL($startDate . ' 00:00:00') . "'");
+        $sql->where("o.date_add <= '" . pSQL($endDate . ' 23:59:59') . "'");
+        $sql->orderBy('o.date_add ASC');
 
         $results = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
         $rows = [];
 
         foreach ($results as $result) {
             $rows[] = [
-                'date' => $result['day'],
+                'order_date' => $result['order_day'],
+                'invoice_date' => $result['invoice_day'] ?: $result['order_day'],
                 'ca_ht' => (float) $result['ca_ht'],
                 'mb_ht' => 0.0,
                 'marge_nette' => 0.0,
@@ -72,7 +102,8 @@ class KpiReportService
             $cumulMargeNette += (float) $row['marge_nette'];
 
             $rows[] = [
-                'date' => $row['date'],
+                'order_date' => $row['order_date'],
+                'invoice_date' => $row['invoice_date'],
                 'cumul_ca_ht' => $this->formatAmount($cumulCaHt),
                 'cumul_mb_ht' => $this->formatAmount($cumulMbHt),
                 'cumul_marge_nette' => $this->formatAmount($cumulMargeNette),
