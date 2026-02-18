@@ -108,9 +108,14 @@ class AdminPtsReportingController extends ModuleAdminController
 
         $out = fopen('php://output', 'w');
         fputcsv($out, [
+            'reference_commande',
             'date_commande',
             'date_facture',
             'cumul_ca_ht',
+            'cumul_depannage_ht',
+            'commandes_fournisseur_liees',
+            'cumul_quantites_sans_commande_fournisseur',
+            'cumul_achat_ht_sans_commande_fournisseur',
             'cumul_mb_ht',
             'cumul_marge_nette',
             'cumul_pct_mb_ht',
@@ -119,9 +124,14 @@ class AdminPtsReportingController extends ModuleAdminController
 
         foreach ($rows as $row) {
             fputcsv($out, [
+                $row['order_reference'],
                 $row['order_date'],
                 $row['invoice_date'],
                 $row['cumul_ca_ht'],
+                $row['cumul_depannage_ht'],
+                $row['supplier_order_refs'],
+                $row['cumul_missing_supplier_qty'],
+                $row['cumul_missing_supplier_purchase_ht'],
                 $row['cumul_mb_ht'],
                 $row['cumul_marge_nette'],
                 $row['cumul_pct_mb_ht'],
