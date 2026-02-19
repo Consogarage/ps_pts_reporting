@@ -51,8 +51,30 @@ class KpiReportService
         return $this->computeOrderRows($dailyRows);
     }
 
-    private function fetchDailyRows($startDate, $endDate, $depannageRate = 1.06)
+    public function getInvoicedKpisForMonth($year, $month, $depannageRate = 1.06)
     {
+        $startDate = sprintf('%04d-%02d-01', $year, $month);
+        $endDate = $this->getMonthEndDate($year, $month);
+
+        if ($endDate > date('Y-m-d')) {
+            $endDate = date('Y-m-d');
+        }
+
+        $dailyRows = $this->fetchDailyRows(
+            $startDate,
+            $endDate,
+            (float) $depannageRate,
+            'o.invoice_date',
+            true
+        );
+
+        return $this->computeOrderRows($dailyRows);
+    }
+
+    private function fetchDailyRows($startDate, $endDate, $depannageRate = 1.06, $dateColumn = 'o.date_add', $onlyInvoiced = false)
+    {
+        $dateColumn = ($dateColumn === 'o.invoice_date') ? 'o.invoice_date' : 'o.date_add';
+
         // TODO: compute MB and marge nette once depannage rules are confirmed.
         $sql = new DbQuery();
         $sql->select('DATE(o.date_add) AS order_day');
@@ -66,7 +88,7 @@ class KpiReportService
             . ' LEFT JOIN ' . _DB_PREFIX_ . 'supplier sup'
             . ' ON sup.id_supplier = p.id_supplier'
             . ' WHERE od.id_order = o.id_order'
-            . " AND (sup.name IS NULL OR sup.name != 'ITAL Express')"
+            . " AND (sup.name IS NULL OR LOWER(sup.name) != 'ital express')"
             . ') AS ca_ht'
         );
         $sql->select(
@@ -77,7 +99,7 @@ class KpiReportService
             . ' LEFT JOIN ' . _DB_PREFIX_ . 'supplier wksup'
             . ' ON wksup.id_supplier = wo2.id_supplier'
             . " WHERE FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', ','))"
-            . " AND (wksup.name IS NULL OR wksup.name != 'ITAL Express')"
+            . " AND (wksup.name IS NULL OR LOWER(wksup.name) != 'ital express')"
             . ') AS depannage_ht'
         );
         $sql->select("IFNULL(GROUP_CONCAT(DISTINCT wo.reference ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
@@ -98,7 +120,7 @@ class KpiReportService
             . " AND FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wlink.customer_id_orders), '|', ','))"
             . ' WHERE od.id_order = o.id_order'
             . ' AND wlink.id_wkdelivery_order_detail IS NULL'
-            . " AND (sup.name IS NULL OR sup.name != 'ITAL Express')"
+            . " AND (sup.name IS NULL OR LOWER(sup.name) != 'ital express')"
             . ') AS missing_supplier_purchase_ht'
         );
         $sql->from('orders', 'o');
@@ -108,10 +130,14 @@ class KpiReportService
             "FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
         );
         $sql->leftJoin('wkdelivery_orders', 'wo', 'wo.id_wkdelivery_orders = wod.id_delivery');
-        $sql->where("o.date_add >= '" . pSQL($startDate . ' 00:00:00') . "'");
-        $sql->where("o.date_add <= '" . pSQL($endDate . ' 23:59:59') . "'");
+        $sql->where($dateColumn . " >= '" . pSQL($startDate . ' 00:00:00') . "'");
+        $sql->where($dateColumn . " <= '" . pSQL($endDate . ' 23:59:59') . "'");
+        if ($onlyInvoiced) {
+            $sql->where('o.invoice_date IS NOT NULL');
+            $sql->where("o.invoice_date != '0000-00-00 00:00:00'");
+        }
         $sql->groupBy('o.id_order');
-        $sql->orderBy('o.date_add ASC');
+        $sql->orderBy($dateColumn . ' ASC');
 
         $results = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
         $rows = [];
@@ -183,9 +209,14 @@ class KpiReportService
             return '';
         }
 
-        $date = DateTime::createFromFormat('Y-m-d', (string) $value);
+        $rawValue = trim((string) $value);
+        if ($rawValue === '0000-00-00' || $rawValue === '0000-00-00 00:00:00') {
+            return '';
+        }
+
+        $date = DateTime::createFromFormat('Y-m-d', $rawValue);
         if (!$date) {
-            return (string) $value;
+            return $rawValue;
         }
 
         return $date->format('d/m/Y');

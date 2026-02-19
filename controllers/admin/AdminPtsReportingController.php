@@ -202,7 +202,7 @@ class AdminPtsReportingController extends ModuleAdminController
         $month = (int) $date->format('n');
 
         $service = new KpiReportService($this->context);
-        $rows = $service->getDailyKpisForPeriod($year, $month, $year, $month, $depannageRate);
+        $rows = $service->getInvoicedKpisForMonth($year, $month, $depannageRate);
 
         $totalCaHt = 0.0;
         $totalDepannageHt = 0.0;

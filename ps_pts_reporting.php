@@ -247,7 +247,7 @@ class Ps_Pts_Reporting extends Module
         $month = (int) $start->format('n');
 
         $service = new KpiReportService($this->context);
-        $rows = $service->getDailyKpisForPeriod($year, $month, $year, $month, $depannageRate);
+        $rows = $service->getInvoicedKpisForMonth($year, $month, $depannageRate);
 
         $filename = sprintf('pts_rapport_mensuel_%04d_%02d.csv', $year, $month);
         $content = $this->buildMonthlyCsvContent($rows);
