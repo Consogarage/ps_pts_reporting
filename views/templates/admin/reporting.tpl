@@ -42,6 +42,7 @@
         </div>
         <button type="submit" class="btn btn-default">{l s='Appliquer' mod='ps_pts_reporting'}</button>
         <a class="btn btn-link" href="{$export_url}">{l s='Exporter le CSV' mod='ps_pts_reporting'}</a>
+        <a class="btn btn-link" href="{$export_monthly_url}">{l s='Rapport mensuel' mod='ps_pts_reporting'}</a>
     </form>
 
     {if empty($rows)}
@@ -53,13 +54,13 @@
                     <th>{l s='Reference commande' mod='ps_pts_reporting'}</th>
                     <th>{l s='Date commande' mod='ps_pts_reporting'}</th>
                     <th>{l s='Date facture' mod='ps_pts_reporting'}</th>
-                    <th>{l s='CA HT' mod='ps_pts_reporting'}</th>
-                    <th>{l s='depannage HT' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Commandes fournisseur liees' mod='ps_pts_reporting'}</th>
-                    <th>{l s='MB HT' mod='ps_pts_reporting'}</th>
+                    <th>{l s='ca' mod='ps_pts_reporting'}</th>
+                    <th>{l s='depannage' mod='ps_pts_reporting'}</th>
+                    <th>{l s='commandes fournisseur liees' mod='ps_pts_reporting'}</th>
+                    <th>{l s='marge brute' mod='ps_pts_reporting'}</th>
                     <th>{l s='Marge nette' mod='ps_pts_reporting'}</th>
-                    <th>{l s='% MB HT' mod='ps_pts_reporting'}</th>
-                    <th>{l s='% Marge nette' mod='ps_pts_reporting'}</th>
+                    <th>{l s='% marge brute' mod='ps_pts_reporting'}</th>
+                    <th>{l s='% marge nette' mod='ps_pts_reporting'}</th>
                 </tr>
             </thead>
             <tbody>

@@ -95,17 +95,17 @@ class Ps_Pts_Reporting extends Module
     {
         $out = fopen('php://temp', 'r+');
         fputcsv($out, [
-            'reference_commande',
-            'date_commande',
-            'date_facture',
-            'ca_ht',
-            'depannage_ht',
-            'commandes_fournisseur_liees',
-            'mb_ht',
-            'marge_nette',
-            'pct_mb_ht',
-            'pct_marge_nette',
-        ]);
+            'reference commande',
+            'date commande',
+            'date facture',
+            'ca',
+            'depannage',
+            'commandes fournisseur liees',
+            'marge brute',
+            'marge nette',
+            '% marge brute',
+            '% marge nette',
+        ], ';');
 
         foreach ($rows as $row) {
             fputcsv($out, [
@@ -119,7 +119,7 @@ class Ps_Pts_Reporting extends Module
                 $row['marge_nette'],
                 $row['pct_mb_ht'],
                 $row['pct_marge_nette'],
-            ]);
+            ], ';');
         }
 
         rewind($out);

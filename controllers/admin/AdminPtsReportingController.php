@@ -31,6 +31,7 @@ class AdminPtsReportingController extends ModuleAdminController
             Configuration::updateValue(self::CONFIG_DEPANNAGE_RATE, number_format($depannageRate, 2, '.', ''));
         }
         $export = (int) Tools::getValue('export', 0);
+        $exportMonthly = (int) Tools::getValue('export_monthly', 0);
 
         $monthFrom = max(1, min(12, $monthFrom));
         $monthTo = max(1, min(12, $monthTo));
@@ -75,6 +76,10 @@ class AdminPtsReportingController extends ModuleAdminController
             $years[] = $y;
         }
 
+        if ($exportMonthly === 1) {
+            $this->exportMonthlyCsv($depannageRate);
+        }
+
         $service = new KpiReportService($this->context);
         $rows = $service->getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate);
 
@@ -101,6 +106,10 @@ class AdminPtsReportingController extends ModuleAdminController
                 'depannage_rate' => number_format($depannageRate, 2, '.', ''),
                 'export' => 1,
             ]),
+            'export_monthly_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
+                'depannage_rate' => number_format($depannageRate, 2, '.', ''),
+                'export_monthly' => 1,
+            ]),
         ]);
 
         $this->setTemplate('reporting.tpl');
@@ -121,17 +130,17 @@ class AdminPtsReportingController extends ModuleAdminController
 
         $out = fopen('php://output', 'w');
         fputcsv($out, [
-            'reference_commande',
-            'date_commande',
-            'date_facture',
-            'ca_ht',
-            'depannage_ht',
-            'commandes_fournisseur_liees',
-            'mb_ht',
-            'marge_nette',
-            'pct_mb_ht',
-            'pct_marge_nette',
-        ]);
+            'reference commande',
+            'date commande',
+            'date facture',
+            'ca',
+            'depannage',
+            'commandes fournisseur liees',
+            'marge brute',
+            'marge nette',
+            '% marge brute',
+            '% marge nette',
+        ], ';');
 
         foreach ($rows as $row) {
             fputcsv($out, [
@@ -145,8 +154,61 @@ class AdminPtsReportingController extends ModuleAdminController
                 $row['marge_nette'],
                 $row['pct_mb_ht'],
                 $row['pct_marge_nette'],
-            ]);
+            ], ';');
         }
+
+        fclose($out);
+        exit;
+    }
+
+    private function exportMonthlyCsv($depannageRate)
+    {
+        $year = (int) date('Y');
+        $month = (int) date('n');
+
+        $service = new KpiReportService($this->context);
+        $rows = $service->getDailyKpisForPeriod($year, $month, $year, $month, $depannageRate);
+
+        $totalCaHt = 0.0;
+        $totalDepannageHt = 0.0;
+        $totalMbHt = 0.0;
+        $totalMargeNette = 0.0;
+
+        foreach ($rows as $row) {
+            $totalCaHt += (float) $row['ca_ht'];
+            $totalDepannageHt += (float) $row['depannage_ht'];
+            $totalMbHt += (float) $row['mb_ht'];
+            $totalMargeNette += (float) $row['marge_nette'];
+        }
+
+        $pctMbHt = $totalCaHt > 0 ? ($totalMbHt * 100 / $totalCaHt) : 0;
+        $pctMargeNette = $totalCaHt > 0 ? ($totalMargeNette * 100 / $totalCaHt) : 0;
+
+        $filename = sprintf('pts_rapport_mensuel_%04d_%02d.csv', $year, $month);
+
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+        fputcsv($out, [
+            'ca',
+            'depannage',
+            'marge brute',
+            'marge nette',
+            '% marge brute',
+            '% marge nette',
+        ], ';');
+
+        fputcsv($out, [
+            number_format($totalCaHt, 2, '.', ''),
+            number_format($totalDepannageHt, 2, '.', ''),
+            number_format($totalMbHt, 2, '.', ''),
+            number_format($totalMargeNette, 2, '.', ''),
+            number_format($pctMbHt, 2, '.', ''),
+            number_format($pctMargeNette, 2, '.', ''),
+        ], ';');
 
         fclose($out);
         exit;
