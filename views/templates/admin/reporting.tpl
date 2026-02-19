@@ -43,13 +43,11 @@
                     <th>{l s='Reference commande' mod='ps_pts_reporting'}</th>
                     <th>{l s='Date commande' mod='ps_pts_reporting'}</th>
                     <th>{l s='Date facture' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Cumul CA HT' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Cumul depannage HT' mod='ps_pts_reporting'}</th>
+                    <th>{l s='CA HT' mod='ps_pts_reporting'}</th>
+                    <th>{l s='depannage HT' mod='ps_pts_reporting'}</th>
                     <th>{l s='Commandes fournisseur liees' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Cumul quantites sans commande fournisseur' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Cumul achat HT sans commande fournisseur' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Cumul MB HT' mod='ps_pts_reporting'}</th>
-                    <th>{l s='Cumul Marge nette' mod='ps_pts_reporting'}</th>
+                    <th>{l s='MB HT' mod='ps_pts_reporting'}</th>
+                    <th>{l s='Marge nette' mod='ps_pts_reporting'}</th>
                     <th>{l s='% MB HT' mod='ps_pts_reporting'}</th>
                     <th>{l s='% Marge nette' mod='ps_pts_reporting'}</th>
                 </tr>
@@ -60,15 +58,13 @@
                         <td>{$row.order_reference}</td>
                         <td>{$row.order_date}</td>
                         <td>{$row.invoice_date}</td>
-                        <td>{$row.cumul_ca_ht}</td>
-                        <td>{$row.cumul_depannage_ht}</td>
+                        <td>{$row.ca_ht}</td>
+                        <td>{$row.depannage_ht}</td>
                         <td>{$row.supplier_order_refs}</td>
-                        <td>{$row.cumul_missing_supplier_qty}</td>
-                        <td>{$row.cumul_missing_supplier_purchase_ht}</td>
-                        <td>{$row.cumul_mb_ht}</td>
-                        <td>{$row.cumul_marge_nette}</td>
-                        <td>{$row.cumul_pct_mb_ht}</td>
-                        <td>{$row.cumul_pct_marge_nette}</td>
+                        <td>{$row.mb_ht}</td>
+                        <td>{$row.marge_nette}</td>
+                        <td>{$row.pct_mb_ht}</td>
+                        <td>{$row.pct_marge_nette}</td>
                     </tr>
                 {/foreach}
             </tbody>

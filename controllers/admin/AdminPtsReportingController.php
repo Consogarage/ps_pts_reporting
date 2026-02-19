@@ -111,15 +111,13 @@ class AdminPtsReportingController extends ModuleAdminController
             'reference_commande',
             'date_commande',
             'date_facture',
-            'cumul_ca_ht',
-            'cumul_depannage_ht',
+            'ca_ht',
+            'depannage_ht',
             'commandes_fournisseur_liees',
-            'cumul_quantites_sans_commande_fournisseur',
-            'cumul_achat_ht_sans_commande_fournisseur',
-            'cumul_mb_ht',
-            'cumul_marge_nette',
-            'cumul_pct_mb_ht',
-            'cumul_pct_marge_nette',
+            'mb_ht',
+            'marge_nette',
+            'pct_mb_ht',
+            'pct_marge_nette',
         ]);
 
         foreach ($rows as $row) {
@@ -127,15 +125,13 @@ class AdminPtsReportingController extends ModuleAdminController
                 $row['order_reference'],
                 $row['order_date'],
                 $row['invoice_date'],
-                $row['cumul_ca_ht'],
-                $row['cumul_depannage_ht'],
+                $row['ca_ht'],
+                $row['depannage_ht'],
                 $row['supplier_order_refs'],
-                $row['cumul_missing_supplier_qty'],
-                $row['cumul_missing_supplier_purchase_ht'],
-                $row['cumul_mb_ht'],
-                $row['cumul_marge_nette'],
-                $row['cumul_pct_mb_ht'],
-                $row['cumul_pct_marge_nette'],
+                $row['mb_ht'],
+                $row['marge_nette'],
+                $row['pct_mb_ht'],
+                $row['pct_marge_nette'],
             ]);
         }
 

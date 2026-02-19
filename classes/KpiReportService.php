@@ -38,7 +38,7 @@ class KpiReportService
 
         $dailyRows = $this->fetchDailyRows($startDate, $endDate);
 
-        return $this->computeCumulativeRows($dailyRows);
+        return $this->computeOrderRows($dailyRows);
     }
 
     public function getDailyKpisForLastMonth()
@@ -48,7 +48,7 @@ class KpiReportService
 
         $dailyRows = $this->fetchDailyRows($start->format('Y-m-d'), $end->format('Y-m-d'));
 
-        return $this->computeCumulativeRows($dailyRows);
+        return $this->computeOrderRows($dailyRows);
     }
 
     private function fetchDailyRows($startDate, $endDate)
@@ -58,25 +58,36 @@ class KpiReportService
         $sql->select('DATE(o.date_add) AS order_day');
         $sql->select('o.reference AS order_reference');
         $sql->select('DATE(o.invoice_date) AS invoice_day');
-        $sql->select('o.total_products AS ca_ht');
-        $sql->select('IFNULL(SUM(wod.unit_price_te * wod.quantity), 0) AS depannage_ht');
-        $sql->select("IFNULL(GROUP_CONCAT(DISTINCT wo.reference ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
         $sql->select(
-            '(SELECT IFNULL(SUM(od.product_quantity), 0)'
+            '(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)'
             . ' FROM ' . _DB_PREFIX_ . 'order_detail od'
-            . ' LEFT JOIN ' . _DB_PREFIX_ . 'wkdelivery_order_detail wlink'
-            . ' ON wlink.id_product = od.product_id'
-            . ' AND wlink.id_product_attribute = od.product_attribute_id'
-            . " AND FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wlink.customer_id_orders), '|', ','))"
+            . ' LEFT JOIN ' . _DB_PREFIX_ . 'product p'
+            . ' ON p.id_product = od.product_id'
+            . ' LEFT JOIN ' . _DB_PREFIX_ . 'supplier sup'
+            . ' ON sup.id_supplier = p.id_supplier'
             . ' WHERE od.id_order = o.id_order'
-            . ' AND wlink.id_wkdelivery_order_detail IS NULL'
-            . ') AS missing_supplier_qty'
+            . " AND (sup.name IS NULL OR sup.name != 'ITAL Express')"
+            . ') AS ca_ht'
         );
+        $sql->select(
+            '(SELECT IFNULL(SUM(wod2.unit_price_te * wod2.quantity), 0)'
+            . ' FROM ' . _DB_PREFIX_ . 'wkdelivery_order_detail wod2'
+            . ' INNER JOIN ' . _DB_PREFIX_ . 'wkdelivery_orders wo2'
+            . ' ON wo2.id_wkdelivery_orders = wod2.id_delivery'
+            . ' LEFT JOIN ' . _DB_PREFIX_ . 'supplier wksup'
+            . ' ON wksup.id_supplier = wo2.id_supplier'
+            . " WHERE FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', ','))"
+            . " AND (wksup.name IS NULL OR wksup.name != 'ITAL Express')"
+            . ') AS depannage_ht'
+        );
+        $sql->select("IFNULL(GROUP_CONCAT(DISTINCT wo.reference ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
         $sql->select(
             '(SELECT IFNULL(SUM(od.product_quantity * COALESCE(ps.product_supplier_price_te, 0)), 0)'
             . ' FROM ' . _DB_PREFIX_ . 'order_detail od'
             . ' LEFT JOIN ' . _DB_PREFIX_ . 'product p'
             . ' ON p.id_product = od.product_id'
+            . ' LEFT JOIN ' . _DB_PREFIX_ . 'supplier sup'
+            . ' ON sup.id_supplier = p.id_supplier'
             . ' LEFT JOIN ' . _DB_PREFIX_ . 'product_supplier ps'
             . ' ON ps.id_product = od.product_id'
             . ' AND ps.id_product_attribute = od.product_attribute_id'
@@ -87,6 +98,7 @@ class KpiReportService
             . " AND FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wlink.customer_id_orders), '|', ','))"
             . ' WHERE od.id_order = o.id_order'
             . ' AND wlink.id_wkdelivery_order_detail IS NULL'
+            . " AND (sup.name IS NULL OR sup.name != 'ITAL Express')"
             . ') AS missing_supplier_purchase_ht'
         );
         $sql->from('orders', 'o');
@@ -105,18 +117,19 @@ class KpiReportService
         $rows = [];
 
         foreach ($results as $result) {
+            $depannageHt = (float) $result['depannage_ht'] * 1.06;
+            $missingSupplierPurchaseHt = (float) $result['missing_supplier_purchase_ht'];
+
             $rows[] = [
                 'order_date' => $result['order_day'],
                 'order_reference' => $result['order_reference'],
                 'invoice_date' => $result['invoice_day'] ?: $result['order_day'],
                 'ca_ht' => (float) $result['ca_ht'],
-                'depannage_ht' => (float) $result['depannage_ht'],
+                'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
-                'missing_supplier_qty' => (int) $result['missing_supplier_qty'],
-                'missing_supplier_purchase_ht' => (float) $result['missing_supplier_purchase_ht'],
                 'mb_ht' => (float) $result['ca_ht']
-                    - (float) $result['depannage_ht']
-                    - (float) $result['missing_supplier_purchase_ht'],
+                    - $depannageHt
+                    - $missingSupplierPurchaseHt,
                 'marge_nette' => 0.0,
             ];
         }
@@ -134,41 +147,45 @@ class KpiReportService
         return $date->modify('last day of this month')->format('Y-m-d');
     }
 
-    private function computeCumulativeRows(array $dailyRows)
+    private function computeOrderRows(array $dailyRows)
     {
-        $cumulCaHt = 0.0;
-        $cumulDepannageHt = 0.0;
-        $cumulMbHt = 0.0;
-        $cumulMargeNette = 0.0;
-        $cumulMissingSupplierQty = 0;
-        $cumulMissingSupplierPurchaseHt = 0.0;
         $rows = [];
 
         foreach ($dailyRows as $row) {
-            $cumulCaHt += (float) $row['ca_ht'];
-            $cumulDepannageHt += (float) ($row['depannage_ht'] ?? 0.0);
-            $cumulMbHt += (float) $row['mb_ht'];
-            $cumulMargeNette += (float) $row['marge_nette'];
-            $cumulMissingSupplierQty += (int) ($row['missing_supplier_qty'] ?? 0);
-            $cumulMissingSupplierPurchaseHt += (float) ($row['missing_supplier_purchase_ht'] ?? 0.0);
+            $caHt = (float) $row['ca_ht'];
+            $depannageHt = (float) ($row['depannage_ht'] ?? 0.0);
+            $mbHt = (float) $row['mb_ht'];
+            $margeNette = (float) $row['marge_nette'];
 
             $rows[] = [
-                'order_date' => $row['order_date'],
+                'order_date' => $this->formatDate($row['order_date']),
                 'order_reference' => $row['order_reference'],
-                'invoice_date' => $row['invoice_date'],
-                'cumul_ca_ht' => $this->formatAmount($cumulCaHt),
-                'cumul_depannage_ht' => $this->formatAmount($cumulDepannageHt),
-                'cumul_mb_ht' => $this->formatAmount($cumulMbHt),
-                'cumul_marge_nette' => $this->formatAmount($cumulMargeNette),
+                'invoice_date' => $this->formatDate($row['invoice_date']),
+                'ca_ht' => $this->formatAmount($caHt),
+                'depannage_ht' => $this->formatAmount($depannageHt),
+                'mb_ht' => $this->formatAmount($mbHt),
+                'marge_nette' => $this->formatAmount($margeNette),
                 'supplier_order_refs' => $row['supplier_order_refs'],
-                'cumul_missing_supplier_qty' => $cumulMissingSupplierQty,
-                'cumul_missing_supplier_purchase_ht' => $this->formatAmount($cumulMissingSupplierPurchaseHt),
-                'cumul_pct_mb_ht' => $this->formatPercent($cumulMbHt, $cumulCaHt),
-                'cumul_pct_marge_nette' => $this->formatPercent($cumulMargeNette, $cumulCaHt),
+                'pct_mb_ht' => $this->formatPercent($mbHt, $caHt),
+                'pct_marge_nette' => $this->formatPercent($margeNette, $caHt),
             ];
         }
 
         return $rows;
+    }
+
+    private function formatDate($value)
+    {
+        if (empty($value)) {
+            return '';
+        }
+
+        $date = DateTime::createFromFormat('Y-m-d', (string) $value);
+        if (!$date) {
+            return (string) $value;
+        }
+
+        return $date->format('d/m/Y');
     }
 
     private function formatAmount($value)
