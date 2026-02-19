@@ -1,0 +1,6 @@
+Hello,
+
+{message_body}
+
+Best regards,
+{shop_name}

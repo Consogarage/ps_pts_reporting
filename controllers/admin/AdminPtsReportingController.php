@@ -5,11 +5,21 @@ require_once _PS_MODULE_DIR_ . 'ps_pts_reporting/classes/KpiReportService.php';
 class AdminPtsReportingController extends ModuleAdminController
 {
     const CONFIG_DEPANNAGE_RATE = 'PTS_REPORT_DEPANNAGE_RATE';
+    const CONFIG_REPORT_EMAILS = 'PTS_REPORT_EMAILS';
 
     public function __construct()
     {
         $this->bootstrap = true;
         parent::__construct();
+    }
+
+    public function setMedia($isNewTheme = false)
+    {
+        parent::setMedia($isNewTheme);
+
+        if ($this->module && method_exists($this->module, 'getPathUri')) {
+            $this->addCSS($this->module->getPathUri() . 'views/css/admin/reporting.css');
+        }
     }
 
     public function initContent()
@@ -30,6 +40,17 @@ class AdminPtsReportingController extends ModuleAdminController
         if ($depannageRate !== $storedRate) {
             Configuration::updateValue(self::CONFIG_DEPANNAGE_RATE, number_format($depannageRate, 2, '.', ''));
         }
+
+        $storedEmails = (string) Configuration::get(self::CONFIG_REPORT_EMAILS, '');
+        $emailsInput = Tools::getValue('report_emails', null);
+        $reportEmails = $emailsInput === null
+            ? $storedEmails
+            : $this->normalizeEmails($emailsInput);
+
+        if ($reportEmails !== $storedEmails) {
+            Configuration::updateValue(self::CONFIG_REPORT_EMAILS, $reportEmails);
+        }
+
         $export = (int) Tools::getValue('export', 0);
         $exportMonthly = (int) Tools::getValue('export_monthly', 0);
 
@@ -63,6 +84,11 @@ class AdminPtsReportingController extends ModuleAdminController
             12 => 'decembre',
         ];
 
+        $lastMonthDate = new DateTime('first day of last month');
+        $lastMonth = (int) $lastMonthDate->format('n');
+        $lastYear = (int) $lastMonthDate->format('Y');
+        $exportMonthlyLabel = sprintf('Rapport mensuel (%s %d)', $monthLabels[$lastMonth], $lastYear);
+
         $months = [];
         for ($m = 1; $m <= 12; $m++) {
             $months[] = [
@@ -94,6 +120,7 @@ class AdminPtsReportingController extends ModuleAdminController
             'month_from' => $monthFrom,
             'month_to' => $monthTo,
             'depannage_rate' => number_format($depannageRate, 2, '.', ''),
+            'report_emails' => $reportEmails,
             'months' => $months,
             'years' => $years,
             'action_url' => $this->context->link->getAdminLink('AdminPtsReporting', false),
@@ -106,10 +133,7 @@ class AdminPtsReportingController extends ModuleAdminController
                 'depannage_rate' => number_format($depannageRate, 2, '.', ''),
                 'export' => 1,
             ]),
-            'export_monthly_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
-                'depannage_rate' => number_format($depannageRate, 2, '.', ''),
-                'export_monthly' => 1,
-            ]),
+            'export_monthly_label' => $exportMonthlyLabel,
         ]);
 
         $this->setTemplate('reporting.tpl');
@@ -137,7 +161,7 @@ class AdminPtsReportingController extends ModuleAdminController
             'depannage',
             'commandes fournisseur liees',
             'marge brute',
-            'marge nette',
+            'Marge nette',
             '% marge brute',
             '% marge nette',
         ], ';');
@@ -163,8 +187,9 @@ class AdminPtsReportingController extends ModuleAdminController
 
     private function exportMonthlyCsv($depannageRate)
     {
-        $year = (int) date('Y');
-        $month = (int) date('n');
+        $date = new DateTime('first day of last month');
+        $year = (int) $date->format('Y');
+        $month = (int) $date->format('n');
 
         $service = new KpiReportService($this->context);
         $rows = $service->getDailyKpisForPeriod($year, $month, $year, $month, $depannageRate);
@@ -186,12 +211,7 @@ class AdminPtsReportingController extends ModuleAdminController
 
         $filename = sprintf('pts_rapport_mensuel_%04d_%02d.csv', $year, $month);
 
-        header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-
-        $out = fopen('php://output', 'w');
+        $out = fopen('php://temp', 'r+');
         fputcsv($out, [
             'ca',
             'depannage',
@@ -210,8 +230,66 @@ class AdminPtsReportingController extends ModuleAdminController
             number_format($pctMargeNette, 2, '.', ''),
         ], ';');
 
+        rewind($out);
+        $csvContent = (string) stream_get_contents($out);
         fclose($out);
-        exit;
+
+        $module = $this->module;
+        $saved = false;
+        if ($module && method_exists($module, 'saveReportFileToExports')) {
+            $saved = $module->saveReportFileToExports($filename, $csvContent);
+        }
+
+        $configuredEmails = [];
+        $sent = 0;
+
+        if ($module && method_exists($module, 'getReportEmails')) {
+            $configuredEmails = (array) $module->getReportEmails();
+        }
+
+        if (!empty($configuredEmails) && $module && method_exists($module, 'sendMonthlyReportToConfiguredEmails')) {
+            $sent = (int) $module->sendMonthlyReportToConfiguredEmails($filename, $csvContent);
+        }
+
+        if ($sent > 0) {
+            $this->confirmations[] = sprintf('Rapport mensuel envoye a %d adresse(s).', $sent);
+        } elseif (!empty($configuredEmails)) {
+            $this->warnings[] = 'Emails trouves mais envoi echoue. Verifiez la configuration email/smtp de PrestaShop.';
+        } else {
+            $this->warnings[] = 'Aucun email valide configure pour l envoi du rapport mensuel.';
+        }
+
+        if ($saved !== false) {
+            $this->confirmations[] = sprintf('Fichier rapport mensuel enregistre: %s', $saved['path']);
+        } else {
+            $this->warnings[] = 'Impossible d enregistrer le rapport mensuel dans exports.';
+        }
+    }
+
+    private function normalizeEmails($rawEmails)
+    {
+        $module = $this->module;
+        if ($module && method_exists($module, 'normalizeEmails')) {
+            return (string) $module->normalizeEmails($rawEmails);
+        }
+
+        $singleEmail = trim((string) $rawEmails);
+        if ($singleEmail !== '' && Validate::isEmail($singleEmail)) {
+            return $singleEmail;
+        }
+
+        $parts = preg_split('/[\s,;]+/', (string) $rawEmails);
+        $valid = [];
+
+        foreach ($parts as $email) {
+            $email = trim($email);
+            if ($email === '' || !Validate::isEmail($email)) {
+                continue;
+            }
+            $valid[strtolower($email)] = $email;
+        }
+
+        return implode(',', array_values($valid));
     }
 
     private function normalizeRate($rate)

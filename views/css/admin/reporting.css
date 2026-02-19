@@ -1,0 +1,22 @@
+.pts-reporting-panel .pts-reporting-filters-box {
+    background-color: #f0f0f0;
+    padding: 10px;
+}
+
+.pts-reporting-panel .pts-reporting-filters-box label {
+    /* font-weight: bold;
+    margin-right: 10px; */
+    display: block;
+}
+
+.pts-reporting-panel .pts-reporting-spaced-group {
+    padding-top: 20px;
+}
+
+.pts-reporting-panel .pts-reporting-actions-row {
+    padding-top: 20px;
+}
+
+.pts-reporting-panel .pts-reporting-export-col {
+    padding-top: 25px;
+}

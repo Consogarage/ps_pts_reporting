@@ -16,20 +16,22 @@ if (!$module || !$module->active) {
 }
 
 $payload = $module->getLastMonthCsvPayload();
-$exportsDir = _PS_MODULE_DIR_ . 'ps_pts_reporting/exports';
-
-if (!is_dir($exportsDir)) {
-    if (!mkdir($exportsDir, 0755, true)) {
-        fwrite(STDERR, "Failed to create exports directory.\n");
-        exit(1);
-    }
+$saved = false;
+if (method_exists($module, 'saveReportFileToExports')) {
+    $saved = $module->saveReportFileToExports($payload['filename'], $payload['content']);
 }
 
-$targetPath = $exportsDir . '/' . $payload['filename'];
-$bytes = file_put_contents($targetPath, $payload['content'], LOCK_EX);
-if ($bytes === false) {
-    fwrite(STDERR, "Failed to write export file.\n");
+if ($saved === false) {
+    fwrite(STDERR, "Failed to write export file in exports directory.\n");
     exit(1);
 }
 
-echo "OK: {$targetPath} ({$bytes} bytes)\n";
+$targetPath = $saved['path'];
+$bytes = (int) $saved['bytes'];
+
+$sent = 0;
+if (method_exists($module, 'sendMonthlyReportToConfiguredEmails')) {
+    $sent = (int) $module->sendMonthlyReportToConfiguredEmails($payload['filename'], $payload['content']);
+}
+
+echo "OK: {$targetPath} ({$bytes} bytes), emails sent: {$sent}\n";

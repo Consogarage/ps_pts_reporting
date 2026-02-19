@@ -1,0 +1,6 @@
+Bonjour,
+
+{message_body}
+
+Cordialement,
+{shop_name}
