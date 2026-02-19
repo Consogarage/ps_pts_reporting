@@ -57,8 +57,16 @@
         </div>
 
         <div class="col-sm-12 col-md-4 text-right pts-reporting-export-col">
-            <a class="btn btn-info" href="{$export_url}">{l s='Exporter le tableau' mod='ps_pts_reporting'}</a>
-            <button type="submit" name="export_monthly" value="1" class="btn btn-info">{$export_monthly_label}</button>
+            <a class="btn btn-info btn-block"
+                href="{$export_url}">{l s='Exporter le tableau' mod='ps_pts_reporting'}</a>
+            <p class="help-block">
+                {l s='Exporter le tableau ci-dessous en CSV' mod='ps_pts_reporting'}</p>
+            <hr>
+            <button type="submit" name="export_monthly" value="1"
+                class="btn btn-info btn-block">{$export_monthly_label}</button>
+            <p class="help-block">
+                {l s='CSV avec cumul envoyé par email et exporté sur le serveur (répertoire %s)' sprintf=[$exports_directory] mod='ps_pts_reporting'}
+            </p>
         </div>
     </form>
 

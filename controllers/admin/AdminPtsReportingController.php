@@ -113,6 +113,8 @@ class AdminPtsReportingController extends ModuleAdminController
             $this->exportCsv($rows, $yearFrom, $monthFrom, $yearTo, $monthTo);
         }
 
+        $exportsDirectory = _PS_MODULE_DIR_ . 'ps_pts_reporting/exports';
+
         $this->context->smarty->assign([
             'rows' => $rows,
             'year_from' => $yearFrom,
@@ -125,6 +127,7 @@ class AdminPtsReportingController extends ModuleAdminController
             'years' => $years,
             'action_url' => $this->context->link->getAdminLink('AdminPtsReporting', false),
             'token' => $this->token,
+            'exports_directory' => $exportsDirectory,
             'export_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
                 'year_from' => $yearFrom,
                 'year_to' => $yearTo,
