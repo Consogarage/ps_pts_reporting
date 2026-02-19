@@ -117,7 +117,8 @@ class KpiReportService
         $rows = [];
 
         foreach ($results as $result) {
-            $depannageHt = (float) $result['depannage_ht'] * 1.06;
+            $depannageHtRaw = (float) $result['depannage_ht'];
+            $depannageHt = $depannageHtRaw * 1.06;
             $missingSupplierPurchaseHt = (float) $result['missing_supplier_purchase_ht'];
 
             $rows[] = [
@@ -130,7 +131,9 @@ class KpiReportService
                 'mb_ht' => (float) $result['ca_ht']
                     - $depannageHt
                     - $missingSupplierPurchaseHt,
-                'marge_nette' => 0.0,
+                'marge_nette' => (float) $result['ca_ht']
+                    - $depannageHtRaw
+                    - $missingSupplierPurchaseHt,
             ];
         }
 
