@@ -8,6 +8,8 @@ require_once _PS_MODULE_DIR_ . 'ps_pts_reporting/classes/KpiReportService.php';
 
 class Ps_Pts_Reporting extends Module
 {
+    const CONFIG_DEPANNAGE_RATE = 'PTS_REPORT_DEPANNAGE_RATE';
+
     public function __construct()
     {
         $this->name = 'ps_pts_reporting';
@@ -26,12 +28,14 @@ class Ps_Pts_Reporting extends Module
     public function install()
     {
         return parent::install()
+            && Configuration::updateValue(self::CONFIG_DEPANNAGE_RATE, '1.06')
             && $this->installTab();
     }
 
     public function uninstall()
     {
         return $this->uninstallTab()
+            && Configuration::deleteByName(self::CONFIG_DEPANNAGE_RATE)
             && parent::uninstall();
     }
 
@@ -69,8 +73,13 @@ class Ps_Pts_Reporting extends Module
 
     public function getLastMonthCsvPayload()
     {
+        $depannageRate = (float) Configuration::get(self::CONFIG_DEPANNAGE_RATE);
+        if ($depannageRate <= 0) {
+            $depannageRate = 1.06;
+        }
+
         $service = new KpiReportService($this->context);
-        $rows = $service->getDailyKpisForLastMonth();
+        $rows = $service->getDailyKpisForLastMonth($depannageRate);
 
         $date = new DateTime('first day of last month');
         $filename = sprintf('pts_kpi_%s.csv', $date->format('Y_m'));

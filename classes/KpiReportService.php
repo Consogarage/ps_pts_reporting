@@ -14,7 +14,7 @@ class KpiReportService
         return $this->getDailyKpisForPeriod($year, $month, $year, $month);
     }
 
-    public function getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo)
+    public function getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate = 1.06)
     {
         $startDate = sprintf('%04d-%02d-01', $yearFrom, $monthFrom);
         $endDate = $this->getMonthEndDate($yearTo, $monthTo);
@@ -36,22 +36,22 @@ class KpiReportService
             $endDate = date('Y-m-d');
         }
 
-        $dailyRows = $this->fetchDailyRows($startDate, $endDate);
+        $dailyRows = $this->fetchDailyRows($startDate, $endDate, (float) $depannageRate);
 
         return $this->computeOrderRows($dailyRows);
     }
 
-    public function getDailyKpisForLastMonth()
+    public function getDailyKpisForLastMonth($depannageRate = 1.06)
     {
         $start = new DateTime('first day of last month');
         $end = new DateTime('last day of last month');
 
-        $dailyRows = $this->fetchDailyRows($start->format('Y-m-d'), $end->format('Y-m-d'));
+        $dailyRows = $this->fetchDailyRows($start->format('Y-m-d'), $end->format('Y-m-d'), (float) $depannageRate);
 
         return $this->computeOrderRows($dailyRows);
     }
 
-    private function fetchDailyRows($startDate, $endDate)
+    private function fetchDailyRows($startDate, $endDate, $depannageRate = 1.06)
     {
         // TODO: compute MB and marge nette once depannage rules are confirmed.
         $sql = new DbQuery();
@@ -118,7 +118,7 @@ class KpiReportService
 
         foreach ($results as $result) {
             $depannageHtRaw = (float) $result['depannage_ht'];
-            $depannageHt = $depannageHtRaw * 1.06;
+            $depannageHt = $depannageHtRaw * (float) $depannageRate;
             $missingSupplierPurchaseHt = (float) $result['missing_supplier_purchase_ht'];
 
             $rows[] = [

@@ -4,6 +4,8 @@ require_once _PS_MODULE_DIR_ . 'ps_pts_reporting/classes/KpiReportService.php';
 
 class AdminPtsReportingController extends ModuleAdminController
 {
+    const CONFIG_DEPANNAGE_RATE = 'PTS_REPORT_DEPANNAGE_RATE';
+
     public function __construct()
     {
         $this->bootstrap = true;
@@ -19,6 +21,15 @@ class AdminPtsReportingController extends ModuleAdminController
         $yearTo = (int) Tools::getValue('year_to', $yearFrom);
         $monthFrom = (int) Tools::getValue('month_from', (int) date('n'));
         $monthTo = (int) Tools::getValue('month_to', $monthFrom);
+        $storedRate = $this->normalizeRate(Configuration::get(self::CONFIG_DEPANNAGE_RATE, '1.06'));
+        $depannageRateInput = Tools::getValue('depannage_rate', null);
+        $depannageRate = $depannageRateInput === null
+            ? $storedRate
+            : $this->normalizeRate($depannageRateInput);
+
+        if ($depannageRate !== $storedRate) {
+            Configuration::updateValue(self::CONFIG_DEPANNAGE_RATE, number_format($depannageRate, 2, '.', ''));
+        }
         $export = (int) Tools::getValue('export', 0);
 
         $monthFrom = max(1, min(12, $monthFrom));
@@ -65,7 +76,7 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         $service = new KpiReportService($this->context);
-        $rows = $service->getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo);
+        $rows = $service->getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate);
 
         if ($export === 1) {
             $this->exportCsv($rows, $yearFrom, $monthFrom, $yearTo, $monthTo);
@@ -77,6 +88,7 @@ class AdminPtsReportingController extends ModuleAdminController
             'year_to' => $yearTo,
             'month_from' => $monthFrom,
             'month_to' => $monthTo,
+            'depannage_rate' => number_format($depannageRate, 2, '.', ''),
             'months' => $months,
             'years' => $years,
             'action_url' => $this->context->link->getAdminLink('AdminPtsReporting', false),
@@ -86,6 +98,7 @@ class AdminPtsReportingController extends ModuleAdminController
                 'year_to' => $yearTo,
                 'month_from' => $monthFrom,
                 'month_to' => $monthTo,
+                'depannage_rate' => number_format($depannageRate, 2, '.', ''),
                 'export' => 1,
             ]),
         ]);
@@ -137,5 +150,15 @@ class AdminPtsReportingController extends ModuleAdminController
 
         fclose($out);
         exit;
+    }
+
+    private function normalizeRate($rate)
+    {
+        $normalized = (float) str_replace(',', '.', (string) $rate);
+        if ($normalized <= 0) {
+            return 1.06;
+        }
+
+        return $normalized;
     }
 }
