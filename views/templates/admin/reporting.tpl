@@ -67,6 +67,22 @@
             <p class="help-block">
                 {l s='CSV avec cumul envoyé par email et exporté sur le serveur (répertoire %s)' sprintf=[$exports_directory] mod='ps_pts_reporting'}
             </p>
+            <details class="pts-reporting-history">
+                <summary class="btn btn-block btn-default">{l s='Historique des exports' mod='ps_pts_reporting'}
+                </summary>
+                {if empty($export_history)}
+                    <p class="help-block">{l s='Aucun export disponible.' mod='ps_pts_reporting'}</p>
+                {else}
+                    <ul class="list-unstyled pts-reporting-history-list">
+                        {foreach from=$export_history item=exportItem}
+                            <li>
+                                <a href="{$exportItem.download_url}">{$exportItem.filename}</a>
+                                <span class="text-muted">({$exportItem.date})</span>
+                            </li>
+                        {/foreach}
+                    </ul>
+                {/if}
+            </details>
         </div>
     </form>
 

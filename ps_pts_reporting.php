@@ -80,6 +80,7 @@ class Ps_Pts_Reporting extends Module
     {
         $emails = $this->getReportEmails();
         if (empty($emails)) {
+            $this->addPsLog('Aucun email valide configure pour l envoi du rapport mensuel.', 2);
             return 0;
         }
 
@@ -88,11 +89,19 @@ class Ps_Pts_Reporting extends Module
         $body = 'Veuillez trouver en piece jointe le rapport mensuel.';
         $sent = 0;
 
+        $this->addPsLog(sprintf('Envoi rapport mensuel demarre. Fichier: %s, destinataires: %d', (string) $filename, count($emails)), 1);
+
         foreach ($emails as $email) {
-            if ($this->sendEmailWithAttachment($email, $subject, $body, (string) $filename, (string) $csvContent)) {
+            $result = $this->sendEmailWithAttachment($email, $subject, $body, (string) $filename, (string) $csvContent);
+            if ($result) {
                 $sent++;
+                $this->addPsLog(sprintf('Email rapport mensuel envoye vers %s', (string) $email), 1);
+            } else {
+                $this->addPsLog(sprintf('Echec envoi email rapport mensuel vers %s', (string) $email), 3);
             }
         }
+
+        $this->addPsLog(sprintf('Envoi rapport mensuel termine. Succès: %d/%d', (int) $sent, count($emails)), $sent > 0 ? 1 : 2);
 
         return $sent;
     }
@@ -123,13 +132,43 @@ class Ps_Pts_Reporting extends Module
             $idLang = (int) $this->context->language->id;
         }
 
+        $fromEmail = (string) Configuration::get('PS_SHOP_EMAIL');
+        $fromName = (string) Configuration::get('PS_SHOP_NAME');
+        if (!Validate::isEmail($fromEmail)) {
+            $fromEmail = null;
+        }
+        if ($fromName === '') {
+            $fromName = null;
+        }
+
+        $mailMethod = (string) Configuration::get('PS_MAIL_METHOD');
+        $smtpServer = (string) Configuration::get('PS_MAIL_SERVER');
+        $smtpPort = (string) Configuration::get('PS_MAIL_SMTP_PORT');
+        $smtpEncryption = (string) Configuration::get('PS_MAIL_SMTP_ENCRYPTION');
+
+        $templatePath = _PS_MODULE_DIR_ . $this->name . '/mails/';
+        $this->addPsLog(
+            sprintf(
+                'Tentative Mail::Send template=report_monthly lang=%d to=%s from=%s method=%s smtp=%s:%s enc=%s path=%s',
+                $idLang,
+                (string) $to,
+                $fromEmail !== null ? $fromEmail : 'null',
+                $mailMethod,
+                $smtpServer,
+                $smtpPort,
+                $smtpEncryption !== '' ? $smtpEncryption : 'none',
+                $templatePath
+            ),
+            1
+        );
+
         $fileAttachment = [
             'content' => $content,
             'name' => $filename,
             'mime' => 'text/csv',
         ];
 
-        return (bool) Mail::Send(
+        $result = (bool) Mail::Send(
             $idLang,
             'report_monthly',
             $subject,
@@ -139,14 +178,29 @@ class Ps_Pts_Reporting extends Module
             ],
             $to,
             null,
-            null,
-            null,
+            $fromEmail,
+            $fromName,
             $fileAttachment,
             null,
-            _PS_MODULE_DIR_ . $this->name . '/mails/',
+            $templatePath,
             false,
             isset($this->context->shop->id) ? (int) $this->context->shop->id : null
         );
+
+        if (!$result) {
+            $this->addPsLog(sprintf('Mail::Send a retourne false pour %s (template report_monthly, lang %d). Verifier SMTP, expéditeur et templates mails.', (string) $to, $idLang), 3);
+        }
+
+        return $result;
+    }
+
+    private function addPsLog($message, $severity = 1)
+    {
+        if (!class_exists('PrestaShopLogger')) {
+            return;
+        }
+
+        PrestaShopLogger::addLog('[ps_pts_reporting] ' . (string) $message, (int) $severity);
     }
 
     private function installTab()

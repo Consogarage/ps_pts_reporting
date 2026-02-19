@@ -26,6 +26,11 @@ class AdminPtsReportingController extends ModuleAdminController
     {
         parent::initContent();
 
+        $downloadExport = (string) Tools::getValue('download_export', '');
+        if ($downloadExport !== '') {
+            $this->downloadExportFile($downloadExport);
+        }
+
         $currentYear = (int) date('Y');
         $yearFrom = (int) Tools::getValue('year_from', $currentYear);
         $yearTo = (int) Tools::getValue('year_to', $yearFrom);
@@ -114,6 +119,7 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         $exportsDirectory = _PS_MODULE_DIR_ . 'ps_pts_reporting/exports';
+        $exportHistory = $this->getExportHistory(12);
 
         $this->context->smarty->assign([
             'rows' => $rows,
@@ -128,6 +134,7 @@ class AdminPtsReportingController extends ModuleAdminController
             'action_url' => $this->context->link->getAdminLink('AdminPtsReporting', false),
             'token' => $this->token,
             'exports_directory' => $exportsDirectory,
+            'export_history' => $exportHistory,
             'export_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
                 'year_from' => $yearFrom,
                 'year_to' => $yearTo,
@@ -293,6 +300,78 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         return implode(',', array_values($valid));
+    }
+
+    private function getExportHistory($limit = 12)
+    {
+        $exportsDir = _PS_MODULE_DIR_ . 'ps_pts_reporting/exports';
+        if (!is_dir($exportsDir)) {
+            return [];
+        }
+
+        $files = @scandir($exportsDir);
+        if ($files === false) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($files as $file) {
+            if ($file === '.' || $file === '..') {
+                continue;
+            }
+            if (strtolower((string) pathinfo($file, PATHINFO_EXTENSION)) !== 'csv') {
+                continue;
+            }
+
+            $path = $exportsDir . '/' . $file;
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $items[] = [
+                'filename' => $file,
+                'mtime' => (int) @filemtime($path),
+                'download_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
+                    'download_export' => $file,
+                ]),
+            ];
+        }
+
+        usort($items, function ($a, $b) {
+            return (int) $b['mtime'] - (int) $a['mtime'];
+        });
+
+        $items = array_slice($items, 0, (int) $limit);
+        foreach ($items as &$item) {
+            $item['date'] = !empty($item['mtime']) ? date('d/m/Y H:i', (int) $item['mtime']) : '-';
+        }
+        unset($item);
+
+        return $items;
+    }
+
+    private function downloadExportFile($filename)
+    {
+        $safeName = basename((string) $filename);
+        if ($safeName === '' || $safeName !== (string) $filename) {
+            $this->warnings[] = 'Nom de fichier export invalide.';
+            return;
+        }
+
+        $path = _PS_MODULE_DIR_ . 'ps_pts_reporting/exports/' . $safeName;
+        if (!is_file($path)) {
+            $this->warnings[] = 'Fichier export introuvable.';
+            return;
+        }
+
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . $safeName . '"');
+        header('Content-Length: ' . filesize($path));
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        readfile($path);
+        exit;
     }
 
     private function normalizeRate($rate)

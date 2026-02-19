@@ -20,3 +20,18 @@
 .pts-reporting-panel .pts-reporting-export-col {
     padding-top: 25px;
 }
+
+.pts-reporting-panel .pts-reporting-history {
+    margin-top: 10px;
+    text-align: left;
+}
+
+.pts-reporting-panel .pts-reporting-history summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.pts-reporting-panel .pts-reporting-history-list {
+    margin-top: 8px;
+    margin-bottom: 0;
+}
