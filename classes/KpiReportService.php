@@ -92,7 +92,15 @@ class KpiReportService
             . ') AS ca_ht'
         );
         $sql->select(
-            '(SELECT IFNULL(SUM(wod2.unit_price_te * wod2.quantity), 0)'
+            "(SELECT IFNULL(SUM((wod2.unit_price_te * wod2.quantity) * ("
+            . " ((LENGTH(CONCAT(',', REPLACE(TRIM(BOTH '|' FROM IFNULL(wod2.customer_id_orders, '')), '|', ','), ','))"
+            . " - LENGTH(REPLACE(CONCAT(',', REPLACE(TRIM(BOTH '|' FROM IFNULL(wod2.customer_id_orders, '')), '|', ','), ','), CONCAT(',', o.id_order, ','), '')))"
+            . " / LENGTH(CONCAT(',', o.id_order, ',')))"
+            . " / (CASE"
+            . " WHEN TRIM(BOTH '|' FROM IFNULL(wod2.customer_id_orders, '')) = '' THEN 1"
+            . " ELSE (LENGTH(TRIM(BOTH '|' FROM wod2.customer_id_orders)) - LENGTH(REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', '')) + 1)"
+            . " END)"
+            . " )), 0)"
             . ' FROM ' . _DB_PREFIX_ . 'wkdelivery_order_detail wod2'
             . ' INNER JOIN ' . _DB_PREFIX_ . 'wkdelivery_orders wo2'
             . ' ON wo2.id_wkdelivery_orders = wod2.id_delivery'
@@ -102,7 +110,7 @@ class KpiReportService
             . " AND (wksup.name IS NULL OR LOWER(wksup.name) != 'ital express')"
             . ') AS depannage_ht'
         );
-        $sql->select("IFNULL(GROUP_CONCAT(DISTINCT wo.reference ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
+        $sql->select("IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', wod.quantity, 'x ', COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))), ']') ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
         $sql->select(
             '(SELECT IFNULL(SUM(od.product_quantity * COALESCE(ps.product_supplier_price_te, 0)), 0)'
             . ' FROM ' . _DB_PREFIX_ . 'order_detail od'
