@@ -36,9 +36,100 @@ class KpiReportService
             $endDate = date('Y-m-d');
         }
 
-        $dailyRows = $this->fetchDailyRows($startDate, $endDate, (float) $depannageRate);
+        $rows = $this->fetchOrderRowsByInvoicePeriod($startDate, $endDate, (float) $depannageRate);
 
-        return $this->computeOrderRows($dailyRows);
+        return $this->computeOrderRows($rows);
+    }
+
+    /**
+     * Récupère les commandes facturées dans la période donnée (via ps_order_invoice),
+     * avec le CA HT, le dépannage proportionnel et les références fournisseur.
+     * Utilisé pour le tableau backoffice.
+     */
+    private function fetchOrderRowsByInvoicePeriod($startDate, $endDate, $depannageRate = 1.06)
+    {
+        $start = pSQL($startDate . ' 00:00:00');
+        $end = pSQL($endDate . ' 23:59:59');
+        $prefix = _DB_PREFIX_;
+
+        // Sous-requête de proportion dépannage (identique à la requête de référence)
+        $depannageProportion =
+            "((LENGTH(IFNULL(wod2.customer_id_orders, '')) - LENGTH(REPLACE(IFNULL(wod2.customer_id_orders, ''), CONCAT('|', o.id_order, '|'), ''))) / LENGTH(CONCAT('|', o.id_order, '|')))"
+            . " / (CASE WHEN TRIM(BOTH '|' FROM IFNULL(wod2.customer_id_orders, '')) = '' THEN 1"
+            . " ELSE (LENGTH(TRIM(BOTH '|' FROM wod2.customer_id_orders)) - LENGTH(REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', '')) + 1)"
+            . " END)";
+
+        $depannageSubquery =
+            "(SELECT IFNULL(SUM(wod2.unit_price_te * wod2.quantity * ({$depannageProportion})), 0)"
+            . " FROM {$prefix}wkdelivery_order_detail wod2"
+            . " INNER JOIN {$prefix}wkdelivery_orders wo2 ON wo2.id_wkdelivery_orders = wod2.id_delivery"
+            . " LEFT JOIN {$prefix}supplier wksup ON wksup.id_supplier = wo2.id_supplier"
+            . " WHERE FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', ','))"
+            . " AND (wksup.name IS NULL OR LOWER(wksup.name) != 'ital express'))";
+
+        $invoiceDateSubquery =
+            "(SELECT DATE(MIN(oi1.date_add)) FROM {$prefix}order_invoice oi1"
+            . " WHERE oi1.id_order = o.id_order"
+            . " AND oi1.date_add >= '{$start}'"
+            . " AND oi1.date_add <= '{$end}')";
+
+        $sql = new DbQuery();
+        $sql->select('o.id_order');
+        $sql->select('o.reference AS order_reference');
+        $sql->select('DATE(o.date_add) AS order_day');
+        $sql->select($invoiceDateSubquery . ' AS invoice_day');
+        $sql->select(
+            "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
+            . " FROM {$prefix}order_detail od"
+            . " LEFT JOIN {$prefix}product p ON p.id_product = od.product_id"
+            . " LEFT JOIN {$prefix}supplier sup ON sup.id_supplier = p.id_supplier"
+            . " WHERE od.id_order = o.id_order"
+            . " AND (sup.name IS NULL OR LOWER(sup.name) != 'ital express')) AS ca_ht"
+        );
+        $sql->select($depannageSubquery . ' AS depannage_ht_raw');
+        $sql->select(
+            "IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', wod.quantity, 'x ',"
+            . " COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))),"
+            . " ']') ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs"
+        );
+        $sql->from('orders', 'o');
+        $sql->leftJoin(
+            'wkdelivery_order_detail',
+            'wod',
+            "FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
+        );
+        $sql->leftJoin('wkdelivery_orders', 'wo', 'wo.id_wkdelivery_orders = wod.id_delivery');
+        $sql->where(
+            "EXISTS (SELECT 1 FROM {$prefix}order_invoice oi"
+            . " WHERE oi.id_order = o.id_order"
+            . " AND oi.date_add >= '{$start}'"
+            . " AND oi.date_add <= '{$end}')"
+        );
+        $sql->where('o.current_state IN (4, 5, 18)');
+        $sql->groupBy('o.id_order');
+        $sql->orderBy('invoice_day ASC');
+
+        $results = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
+        $rows = [];
+
+        foreach ($results as $result) {
+            $caHt = (float) $result['ca_ht'];
+            $depannageHtRaw = (float) $result['depannage_ht_raw'];
+            $depannageHt = $depannageHtRaw * (float) $depannageRate;
+
+            $rows[] = [
+                'order_date' => $result['order_day'],
+                'order_reference' => $result['order_reference'],
+                'invoice_date' => $result['invoice_day'] ?: $result['order_day'],
+                'ca_ht' => $caHt,
+                'depannage_ht' => $depannageHt,
+                'supplier_order_refs' => (string) $result['supplier_order_refs'],
+                'mb_ht' => $caHt - $depannageHt,
+                'marge_nette' => $caHt - $depannageHtRaw,
+            ];
+        }
+
+        return $rows;
     }
 
     public function getDailyKpisForLastMonth($depannageRate = 1.06)

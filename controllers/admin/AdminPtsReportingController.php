@@ -32,9 +32,12 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         $currentYear = (int) date('Y');
-        $yearFrom = (int) Tools::getValue('year_from', $currentYear);
+        $defaultMonthDate = new DateTime('first day of last month');
+        $defaultMonth = (int) $defaultMonthDate->format('n');
+        $defaultYear = (int) $defaultMonthDate->format('Y');
+        $yearFrom = (int) Tools::getValue('year_from', $defaultYear);
         $yearTo = (int) Tools::getValue('year_to', $yearFrom);
-        $monthFrom = (int) Tools::getValue('month_from', (int) date('n'));
+        $monthFrom = (int) Tools::getValue('month_from', $defaultMonth);
         $monthTo = (int) Tools::getValue('month_to', $monthFrom);
         $storedRate = $this->normalizeRate(Configuration::get(self::CONFIG_DEPANNAGE_RATE, '1.06'));
         $depannageRateInput = Tools::getValue('depannage_rate', null);
