@@ -1,5 +1,7 @@
 <div class="panel pts-reporting-panel">
-    <h3>{l s='Reporting KPI' mod='ps_pts_reporting'}</h3>
+    <h3>{l s='Reporting KPI' mod='ps_pts_reporting'} <span class="text-warning small">Les données CA et dépannage
+            ignorent les
+            commandes Ital Express</span></h3>
 
     <form method="get" action="{$action_url}" class="form-inline">
         <input type="hidden" name="token" value="{$token}">

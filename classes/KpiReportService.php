@@ -151,15 +151,9 @@ class KpiReportService
             $endDate = date('Y-m-d');
         }
 
-        $dailyRows = $this->fetchDailyRows(
-            $startDate,
-            $endDate,
-            (float) $depannageRate,
-            'o.invoice_date',
-            true
-        );
+        $rows = $this->fetchOrderRowsByInvoicePeriod($startDate, $endDate, (float) $depannageRate);
 
-        return $this->computeOrderRows($dailyRows);
+        return $this->computeOrderRows($rows);
     }
 
     private function fetchDailyRows($startDate, $endDate, $depannageRate = 1.06, $dateColumn = 'o.date_add', $onlyInvoiced = false)
