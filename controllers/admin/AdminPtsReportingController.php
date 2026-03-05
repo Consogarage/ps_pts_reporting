@@ -93,9 +93,11 @@ class AdminPtsReportingController extends ModuleAdminController
         ];
 
         $lastMonthDate = new DateTime('first day of last month');
-        $lastMonth = (int) $lastMonthDate->format('n');
-        $lastYear = (int) $lastMonthDate->format('Y');
-        $exportMonthlyLabel = sprintf('Rapport mensuel (%s %d)', $monthLabels[$lastMonth], $lastYear);
+        $defaultReportMonth = (int) $lastMonthDate->format('n');
+        $defaultReportYear = (int) $lastMonthDate->format('Y');
+        $reportMonthlyMonth = max(1, min(12, (int) Tools::getValue('report_monthly_month', $defaultReportMonth)));
+        $reportMonthlyYear = (int) Tools::getValue('report_monthly_year', $defaultReportYear);
+        $exportMonthlyLabel = sprintf('Rapport mensuel (%s %d)', $monthLabels[$reportMonthlyMonth], $reportMonthlyYear);
 
         $months = [];
         for ($m = 1; $m <= 12; $m++) {
@@ -111,7 +113,7 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         if ($exportMonthly === 1) {
-            $this->exportMonthlyCsv($depannageRate);
+            $this->exportMonthlyCsv($depannageRate, $reportMonthlyYear, $reportMonthlyMonth);
         }
 
         $service = new KpiReportService($this->context);
@@ -147,6 +149,8 @@ class AdminPtsReportingController extends ModuleAdminController
                 'export' => 1,
             ]),
             'export_monthly_label' => $exportMonthlyLabel,
+            'report_monthly_month' => $reportMonthlyMonth,
+            'report_monthly_year' => $reportMonthlyYear,
         ]);
 
         $this->setTemplate('reporting.tpl');
@@ -198,11 +202,13 @@ class AdminPtsReportingController extends ModuleAdminController
         exit;
     }
 
-    private function exportMonthlyCsv($depannageRate)
+    private function exportMonthlyCsv($depannageRate, $year = null, $month = null)
     {
-        $date = new DateTime('first day of last month');
-        $year = (int) $date->format('Y');
-        $month = (int) $date->format('n');
+        if ($year === null || $month === null) {
+            $date = new DateTime('first day of last month');
+            $year = (int) $date->format('Y');
+            $month = (int) $date->format('n');
+        }
 
         $service = new KpiReportService($this->context);
         $rows = $service->getInvoicedKpisForMonth($year, $month, $depannageRate);

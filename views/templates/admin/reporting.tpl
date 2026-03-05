@@ -64,8 +64,30 @@
             <p class="help-block">
                 {l s='Exporter le tableau ci-dessous en CSV' mod='ps_pts_reporting'}</p>
             <hr>
-            <button type="submit" name="export_monthly" value="1"
-                class="btn btn-info btn-block">{$export_monthly_label}</button>
+            <div class="row">
+                <div class="col-xs-3">
+                    <select name="report_monthly_month" class="form-control">
+                        {foreach from=$months item=opt}
+                            <option value="{$opt.value}" {if $opt.value == $report_monthly_month}selected{/if}>{$opt.label}
+                            </option>
+                        {/foreach}
+                    </select>
+                </div>
+                <div class="col-xs-3">
+                    <select name="report_monthly_year" class="form-control">
+                        {foreach from=$years item=opt}
+                            <option value="{$opt}" {if $opt == $report_monthly_year}selected{/if}>{$opt}</option>
+                        {/foreach}
+                    </select>
+                </div>
+                <div class="col-xs-6">
+                    <button type="submit" name="export_monthly" value="1" class="btn btn-info btn-block">
+                        {* {$export_monthly_label} *}
+                        Rapport mensuel (cumul)
+                    </button>
+
+                </div>
+            </div>
             <p class="help-block">
                 {l s='CSV avec cumul envoyé par email et exporté sur le serveur (répertoire %s)' sprintf=[$exports_directory] mod='ps_pts_reporting'}
             </p>
