@@ -1,3 +1,74 @@
+.pts-reporting-panel .pts-reporting-tab-content {
+    padding-top: 20px;
+}
+
+/* ---------- Summary KPI clients ---------- */
+.pts-reporting-panel .pts-kpi-summary {
+    margin-bottom: 20px;
+}
+
+.pts-reporting-panel .pts-kpi-stat-block {
+    background: #f0f4fb;
+    border-left: 4px solid #2e6da4;
+    border-radius: 3px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.pts-reporting-panel .pts-kpi-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #666;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    margin-bottom: 4px;
+}
+
+.pts-reporting-panel .pts-kpi-stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2e6da4;
+    line-height: 1.2;
+}
+
+.pts-reporting-panel .pts-kpi-stat-sub {
+    font-size: 11px;
+    color: #555;
+    margin-top: 4px;
+}
+
+/* ---------- Onglet KPI clients ---------- */
+.pts-reporting-panel .pts-kpi-clients-form {
+    margin-bottom: 20px;
+    gap: 12px;
+}
+
+.pts-reporting-panel .pts-kpi-clients-form .form-group {
+    margin-right: 10px;
+}
+
+.pts-reporting-panel .pts-kpi-clients-table-wrap {
+    overflow-x: auto;
+    margin-top: 16px;
+}
+
+.pts-reporting-panel .pts-kpi-clients-table {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.pts-reporting-panel .pts-kpi-clients-table thead th {
+    background-color: #f5f5f5;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.pts-reporting-panel .pts-kpi-clients-table tr.pts-new-customer td:nth-child(2) {
+    font-weight: bold;
+}
+
 .pts-reporting-panel .pts-reporting-filters-box {
     background-color: #f0f0f0;
     padding: 10px;

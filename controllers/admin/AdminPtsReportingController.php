@@ -123,6 +123,24 @@ class AdminPtsReportingController extends ModuleAdminController
             $this->exportCsv($rows, $yearFrom, $monthFrom, $yearTo, $monthTo);
         }
 
+        // Onglet KPI clients
+        $activeTab = (string) Tools::getValue('active_tab', 'tab-ca-marge');
+        $kpiMonth = max(1, min(12, (int) Tools::getValue('kpi_month', $defaultMonth)));
+        $kpiYear = (int) Tools::getValue('kpi_year', $defaultYear);
+        $customerKpiRows = [];
+        $customerKpiSummary = [];
+        $exportKpiClients = (int) Tools::getValue('export_kpi_clients', 0);
+
+        if ($activeTab === 'tab-kpi-clients' || Tools::getValue('kpi_month') !== false || $exportKpiClients === 1) {
+            $kpiResult = $service->getCustomerKpis($kpiYear, $kpiMonth);
+            $customerKpiRows = $kpiResult['rows'] ?? [];
+            $customerKpiSummary = $kpiResult['summary'] ?? [];
+        }
+
+        if ($exportKpiClients === 1) {
+            $this->exportCustomerKpisXlsx($customerKpiRows, $customerKpiSummary, $kpiYear, $kpiMonth);
+        }
+
         $exportsDirectory = _PS_MODULE_DIR_ . 'ps_pts_reporting/exports';
         $exportHistory = $this->getExportHistory(12);
 
@@ -151,9 +169,244 @@ class AdminPtsReportingController extends ModuleAdminController
             'export_monthly_label' => $exportMonthlyLabel,
             'report_monthly_month' => $reportMonthlyMonth,
             'report_monthly_year' => $reportMonthlyYear,
+            // Onglet KPI clients
+            'active_tab' => $activeTab,
+            'kpi_month' => $kpiMonth,
+            'kpi_year' => $kpiYear,
+            'customer_kpi_rows' => $customerKpiRows,
+            'customer_kpi_summary' => $customerKpiSummary,
+            'kpi_export_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
+                'active_tab' => 'tab-kpi-clients',
+                'kpi_month' => $kpiMonth,
+                'kpi_year' => $kpiYear,
+                'export_kpi_clients' => 1,
+            ]),
         ]);
 
         $this->setTemplate('reporting.tpl');
+    }
+
+    private function exportCustomerKpisXlsx(array $rows, array $summary, $year, $month)
+    {
+        $monthLabels = [
+            1 => 'janvier',
+            2 => 'fevrier',
+            3 => 'mars',
+            4 => 'avril',
+            5 => 'mai',
+            6 => 'juin',
+            7 => 'juillet',
+            8 => 'aout',
+            9 => 'septembre',
+            10 => 'octobre',
+            11 => 'novembre',
+            12 => 'decembre',
+        ];
+        $periodN = ($monthLabels[$month] ?? $month) . ' ' . $year;
+        $periodN1 = ($monthLabels[$month] ?? $month) . ' ' . ($year - 1);
+        $filename = sprintf('kpi_clients_%04d_%02d.xlsx', $year, $month);
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('KPI Clients');
+
+        // ---- Styles ----
+        $styleBoldGray = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FFD9D9D9']
+            ],
+            'borders' => ['allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN]],
+        ];
+        $styleSummaryLabel = [
+            'font' => ['bold' => true, 'color' => ['argb' => 'FF555555']],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FFEFF3FB']
+            ],
+        ];
+        $styleSummaryValue = [
+            'font' => ['bold' => true],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FFDCE6F1']
+            ],
+        ];
+        $styleHeader = [
+            'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FF2E6DA4']
+            ],
+            'borders' => ['allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN]],
+            'alignment' => [
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+                'wrapText' => true
+            ],
+        ];
+        $styleDataEven = [
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FFF2F2F2']
+            ]
+        ];
+        $styleNew = [
+            'fill' => [
+                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                'startColor' => ['argb' => 'FFFDE9D9']
+            ]
+        ];
+
+        // === LIGNE 1 : Titre ===
+        $sheet->setCellValue('A1', 'KPI Clients – ' . $periodN . ' vs ' . $periodN1);
+        $sheet->mergeCells('A1:U1');
+        $sheet->getStyle('A1')->applyFromArray([
+            'font' => ['bold' => true, 'size' => 13, 'color' => ['argb' => 'FF2E6DA4']],
+        ]);
+        $sheet->getRowDimension(1)->setRowHeight(22);
+
+        // === LIGNE 2 : Labels agrégats ===
+        $sheet->setCellValue('A2', 'Sous-totaux');
+        $sheet->setCellValue('F2', 'Écart CA');
+        $sheet->setCellValue('G2', 'Date mensuel');
+        $sheet->setCellValue('H2', 'Nb clients N');
+        $sheet->setCellValue('I2', 'Nb clients N-1');
+        $sheet->setCellValue('J2', 'Évol. clients %');
+        $sheet->setCellValue('N2', 'Évol. CA %');
+        $sheet->setCellValue('O2', 'Total Devis');
+        $sheet->setCellValue('P2', 'Total Cdes');
+        $sheet->setCellValue('Q2', 'Total Transfo');
+        $sheet->setCellValue('R2', 'Taux transfo');
+        $sheet->setCellValue('T2', 'Total Avoirs');
+        $sheet->setCellValue('U2', 'Nb nouveaux');
+        $sheet->getStyle('A2:U2')->applyFromArray($styleSummaryLabel);
+
+        // === LIGNE 3 : Valeurs agrégats ===
+        $sheet->setCellValue('A3', 'Valeurs');
+        $sheet->setCellValue('F3', !empty($summary) ? $summary['ecart_ca'] : '');
+        $sheet->setCellValue('G3', !empty($summary) ? $periodN : '');
+        $sheet->setCellValue('H3', !empty($summary) ? $summary['nb_actifs_n'] : '');
+        $sheet->setCellValue('I3', !empty($summary) ? $summary['nb_actifs_n1'] : '');
+        $sheet->setCellValue('J3', !empty($summary) ? $summary['evol_nb_clients'] . ' %' : '');
+        $sheet->setCellValue('K3', !empty($summary) ? $summary['total_mb_n'] : '');
+        $sheet->setCellValue('L3', !empty($summary) ? $summary['pct_mb_n'] . ' %' : '');
+        $sheet->setCellValue('M3', !empty($summary) ? $summary['total_mb_n1'] : '');
+        // Row 3 col G also holds CA info in the image – we split across 2 "header" rows
+        // Additional full-width summary in cols G-N row3:
+        $sheet->setCellValue('N3', !empty($summary) ? $summary['pct_ca_vs_n1'] . ' %' : '');
+        $sheet->setCellValue('O3', !empty($summary) ? $summary['total_devis'] : '');
+        $sheet->setCellValue('P3', !empty($summary) ? $summary['total_cmds'] : '');
+        $sheet->setCellValue('Q3', !empty($summary) ? $summary['total_transfo'] : '');
+        $sheet->setCellValue('R3', !empty($summary) ? $summary['taux_transfo'] . ' %' : '');
+        $sheet->setCellValue('S3', !empty($summary) ? $summary['panier_moyen'] : '');
+        $sheet->setCellValue('T3', !empty($summary) ? $summary['total_avoirs'] : '');
+        $sheet->setCellValue('U3', !empty($summary) ? $summary['nb_nouveaux'] : '');
+        $sheet->getStyle('A3:U3')->applyFromArray($styleSummaryValue);
+
+        // Ligne 4 séparateur CA / MB
+        $sheet->setCellValue('F4', !empty($summary) ? 'Total CA N : ' . $summary['total_ca_n'] : '');
+        $sheet->setCellValue('G4', !empty($summary) ? 'Total MB N : ' . $summary['total_mb_n'] : '');
+        $sheet->setCellValue('H4', !empty($summary) ? '% MB N : ' . $summary['pct_mb_n'] . ' %' : '');
+        $sheet->setCellValue('J4', !empty($summary) ? 'Total CA N-1 : ' . $summary['total_ca_n1'] : '');
+        $sheet->setCellValue('K4', !empty($summary) ? 'Total MB N-1 : ' . $summary['total_mb_n1'] : '');
+        $sheet->setCellValue('L4', !empty($summary) ? '% MB N-1 : ' . $summary['pct_mb_n1'] . ' %' : '');
+        $sheet->setCellValue('M4', !empty($summary) ? '% MB vs N-1 : ' . $summary['pct_mb_vs_n1'] . ' %' : '');
+        $sheet->getStyle('A4:U4')->applyFromArray($styleSummaryLabel);
+
+        // === LIGNE 5 : En-têtes colonnes ===
+        $headers = [
+            'A' => 'Client',
+            'B' => 'Raison sociale',
+            'C' => 'Activité',
+            'D' => 'DEPT',
+            'E' => 'PAYS',
+            'F' => 'Écart CA A-1',
+            'G' => 'CA A',
+            'H' => 'MB',
+            'I' => '% MB',
+            'J' => 'CA A-1',
+            'K' => 'MB A-1',
+            'L' => '% MB N-1',
+            'M' => '% MB vs A-1',
+            'N' => '% CA N vs N-1',
+            'O' => 'Devis',
+            'P' => 'Cdes',
+            'Q' => 'Transformation devis en commande',
+            'R' => 'Taux transformation devis en commande',
+            'S' => 'Panier moyen',
+            'T' => 'Avoirs',
+            'U' => 'Nouveau client O/N',
+        ];
+        foreach ($headers as $col => $label) {
+            $sheet->setCellValue($col . '5', $label);
+        }
+        $sheet->getStyle('A5:U5')->applyFromArray($styleHeader);
+        $sheet->getRowDimension(5)->setRowHeight(30);
+
+        // === LIGNES 6+ : Données ===
+        $excelRow = 6;
+        foreach ($rows as $i => $row) {
+            $sheet->setCellValue('A' . $excelRow, $row['customer_id']);
+            $sheet->setCellValue('B' . $excelRow, $row['company']);
+            $sheet->setCellValue('C' . $excelRow, $row['activity']);
+            $sheet->setCellValue('D' . $excelRow, $row['dept']);
+            $sheet->setCellValue('E' . $excelRow, $row['pays']);
+            $sheet->setCellValue('F' . $excelRow, $row['ecart_ca_raw']);
+            $sheet->setCellValue('G' . $excelRow, $row['ca_n_raw']);
+            $sheet->setCellValue('H' . $excelRow, $row['mb_n_raw']);
+            $sheet->setCellValue('I' . $excelRow, $row['pct_mb_n']);
+            $sheet->setCellValue('J' . $excelRow, $row['ca_n1_raw']);
+            $sheet->setCellValue('K' . $excelRow, $row['mb_n1_raw']);
+            $sheet->setCellValue('L' . $excelRow, $row['pct_mb_n1']);
+            $sheet->setCellValue('M' . $excelRow, $row['pct_mb_vs_n1']);
+            $sheet->setCellValue('N' . $excelRow, $row['pct_ca_vs_n1']);
+            $sheet->setCellValue('O' . $excelRow, $row['nb_devis']);
+            $sheet->setCellValue('P' . $excelRow, $row['nb_commandes']);
+            $sheet->setCellValue('Q' . $excelRow, $row['nb_devis_transformed']);
+            $sheet->setCellValue('R' . $excelRow, $row['taux_transfo']);
+            $sheet->setCellValue('S' . $excelRow, $row['panier_moyen']);
+            $sheet->setCellValue('T' . $excelRow, $row['nb_avoirs']);
+            $sheet->setCellValue('U' . $excelRow, $row['is_new_customer'] ? 'O' : 'N');
+
+            if ($row['is_new_customer']) {
+                $sheet->getStyle('A' . $excelRow . ':U' . $excelRow)->applyFromArray($styleNew);
+            } elseif ($i % 2 === 1) {
+                $sheet->getStyle('A' . $excelRow . ':U' . $excelRow)->applyFromArray($styleDataEven);
+            }
+
+            // Format numérique pour les montants
+            $numFmt = '#,##0.00';
+            foreach (['F', 'G', 'H', 'J', 'K', 'S'] as $col) {
+                $sheet->getStyle($col . $excelRow)->getNumberFormat()
+                    ->setFormatCode($numFmt);
+            }
+            // Format % pour les pourcentages (valeurs déjà en %)
+            foreach (['I', 'L', 'M', 'N', 'R'] as $col) {
+                $sheet->getStyle($col . $excelRow)->getNumberFormat()
+                    ->setFormatCode('0.00"%"');
+            }
+
+            ++$excelRow;
+        }
+
+        // Auto-width approximatif
+        $autoWidthCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
+        foreach ($autoWidthCols as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Figer les volets à partir de la ligne 6 col F
+        $sheet->freezePane('F6');
+
+        // ---- Sortie HTTP ----
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: max-age=0');
+
+        $writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($spreadsheet, 'Xlsx');
+        $writer->save('php://output');
+        exit;
     }
 
     private function exportCsv(array $rows, $yearFrom, $monthFrom, $yearTo, $monthTo)

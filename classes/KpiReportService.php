@@ -132,6 +132,215 @@ class KpiReportService
         return $rows;
     }
 
+    /**
+     * KPI clients pour un mois donné vs N-1 (même mois, année précédente).
+     * Colonnes : client, activité, dept, pays, CA N, CA N-1, écart CA, % CA vs N-1,
+     *            MB N, % MB N, MB N-1, % MB N-1, % MB vs N-1,
+     *            devis, commandes, devis transformés, taux transfo, panier moyen,
+     *            avoirs, nouveau client.
+     */
+    public function getCustomerKpis($year, $month)
+    {
+        $prefix = _DB_PREFIX_;
+
+        $dateN = DateTime::createFromFormat('Y-n-j', $year . '-' . $month . '-1');
+        $dateN->modify('last day of this month');
+        $startN = pSQL(sprintf('%04d-%02d-01 00:00:00', $year, $month));
+        $endN = pSQL($dateN->format('Y-m-d') . ' 23:59:59');
+
+        $yearN1 = $year - 1;
+        $dateN1 = DateTime::createFromFormat('Y-n-j', $yearN1 . '-' . $month . '-1');
+        $dateN1->modify('last day of this month');
+        $startN1 = pSQL(sprintf('%04d-%02d-01 00:00:00', $yearN1, $month));
+        $endN1 = pSQL($dateN1->format('Y-m-d') . ' 23:59:59');
+
+        // Filtre commandes valides (hors annulées / remboursées)
+        $validStates = 'NOT IN (6, 7)';
+
+        // Existence facture dans période N
+        $invoicedN = "EXISTS (SELECT 1 FROM {$prefix}order_invoice oi WHERE oi.id_order = o.id_order AND oi.date_add >= '{$startN}' AND oi.date_add <= '{$endN}')";
+        $invoicedN1 = "EXISTS (SELECT 1 FROM {$prefix}order_invoice oi WHERE oi.id_order = o.id_order AND oi.date_add >= '{$startN1}' AND oi.date_add <= '{$endN1}')";
+
+        // Sous-requête : CA pour une période (somme toutes lignes commandes)
+        $caN = "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
+            . " FROM {$prefix}orders o INNER JOIN {$prefix}order_detail od ON od.id_order = o.id_order"
+            . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
+
+        $caN1 = "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
+            . " FROM {$prefix}orders o INNER JOIN {$prefix}order_detail od ON od.id_order = o.id_order"
+            . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
+
+        // Sous-requête : achats dépannage pour une période (somme wkdelivery)
+        $depannageN = "(SELECT IFNULL(SUM(wod.unit_price_te * wod.quantity), 0)"
+            . " FROM {$prefix}orders o"
+            . " INNER JOIN {$prefix}wkdelivery_order_detail wod"
+            . "   ON FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
+            . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
+
+        $depannageN1 = "(SELECT IFNULL(SUM(wod.unit_price_te * wod.quantity), 0)"
+            . " FROM {$prefix}orders o"
+            . " INNER JOIN {$prefix}wkdelivery_order_detail wod"
+            . "   ON FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
+            . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
+
+        // Sous-requête : nombre de commandes dans une période
+        $nbCmdsN = "(SELECT IFNULL(COUNT(DISTINCT o.id_order), 0) FROM {$prefix}orders o WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
+        $nbCmdsN1 = "(SELECT IFNULL(COUNT(DISTINCT o.id_order), 0) FROM {$prefix}orders o WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
+
+        // Sous-requête : activité B2B (champ custom id=1)
+        $activitySub = "(SELECT COALESCE(cfvl.value, rv.field_value)"
+            . " FROM {$prefix}presta_btwob_registration_value rv"
+            . " LEFT JOIN {$prefix}presta_btwob_custom_fields_value_lang cfvl"
+            . "   ON cfvl.id_multi_value = CAST(REPLACE(REPLACE(REPLACE(rv.field_value,'[',''),']',''),'\"','') AS UNSIGNED)"
+            . "   AND cfvl.id_lang = 1"
+            . " WHERE rv.id_customer = c.id_customer AND rv.field_id = 1"
+            . " ORDER BY rv.id_presta_btwob_registration_value DESC LIMIT 1)";
+
+        // Sous-requête : code postal (première adresse)
+        $deptSub = "(SELECT a.postcode FROM {$prefix}address a WHERE a.id_customer = c.id_customer AND a.deleted = 0 ORDER BY a.id_address ASC LIMIT 1)";
+
+        // Sous-requête : pays (première adresse)
+        $paysSub = "(SELECT cl.name FROM {$prefix}address a LEFT JOIN {$prefix}country_lang cl ON cl.id_country = a.id_country AND cl.id_lang = 1 WHERE a.id_customer = c.id_customer AND a.deleted = 0 ORDER BY a.id_address ASC LIMIT 1)";
+
+        // Sous-requête : devis N (table opartdevis)
+        $nbDevisN = "(SELECT IFNULL(COUNT(DISTINCT d.id_opartdevis), 0) FROM {$prefix}opartdevis d WHERE d.id_customer = c.id_customer AND d.date_add >= '{$startN}' AND d.date_add <= '{$endN}')";
+
+        // Sous-requête : devis transformés en commande (status=2) N
+        $nbDevisTransformedN = "(SELECT IFNULL(COUNT(DISTINCT d.id_opartdevis), 0) FROM {$prefix}opartdevis d WHERE d.id_customer = c.id_customer AND d.date_add >= '{$startN}' AND d.date_add <= '{$endN}' AND d.status = 2)";
+
+        // Sous-requête : avoirs N
+        $nbAvoirsN = "(SELECT IFNULL(COUNT(DISTINCT os.id_order_slip), 0) FROM {$prefix}order_slip os WHERE os.id_customer = c.id_customer AND os.date_add >= '{$startN}' AND os.date_add <= '{$endN}')";
+
+        // Nouveau client : première facture dans la période N
+        $nouveauClient = "CASE WHEN (SELECT MIN(oi.date_add) FROM {$prefix}orders o INNER JOIN {$prefix}order_invoice oi ON oi.id_order = o.id_order WHERE o.id_customer = c.id_customer) BETWEEN '{$startN}' AND '{$endN}' THEN 1 ELSE 0 END";
+
+        $sql = "SELECT
+            c.id_customer,
+            c.company,
+            IFNULL({$activitySub}, '') AS activity,
+            IFNULL({$deptSub}, '') AS dept,
+            IFNULL({$paysSub}, '') AS pays,
+            ROUND({$caN}, 2) AS ca_n,
+            ROUND({$caN1}, 2) AS ca_n1,
+            ROUND({$caN} - {$caN1}, 2) AS ecart_ca,
+            ROUND({$caN} - {$depannageN}, 2) AS mb_n,
+            ROUND({$caN1} - {$depannageN1}, 2) AS mb_n1,
+            {$nbDevisN} AS nb_devis,
+            {$nbCmdsN} AS nb_commandes,
+            {$nbDevisTransformedN} AS nb_devis_transformed,
+            {$nbAvoirsN} AS nb_avoirs,
+            {$nouveauClient} AS is_new_customer
+        FROM {$prefix}customer c
+        WHERE {$nbCmdsN} > 0 OR {$nbCmdsN1} > 0
+        ORDER BY c.company ASC";
+
+        $results = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
+        $rows = [];
+
+        if (!is_array($results)) {
+            return ['rows' => [], 'summary' => []];
+        }
+
+        // Variables d'agrégation
+        $sumCaN = 0.0;
+        $sumCaN1 = 0.0;
+        $sumMbN = 0.0;
+        $sumMbN1 = 0.0;
+        $sumDevis = 0;
+        $sumCmds = 0;
+        $sumTransfo = 0;
+        $sumAvoirs = 0;
+        $nbActifsN = 0;
+        $nbActifsN1 = 0;
+        $nbNouveaux = 0;
+
+        foreach ($results as $r) {
+            $caN_val = (float) $r['ca_n'];
+            $caN1_val = (float) $r['ca_n1'];
+            $mbN_val = (float) $r['mb_n'];
+            $mbN1_val = (float) $r['mb_n1'];
+            $nbDevis = (int) $r['nb_devis'];
+            $nbCmds = (int) $r['nb_commandes'];
+            $nbTransfo = (int) $r['nb_devis_transformed'];
+            $isNew = (bool) $r['is_new_customer'];
+
+            // Agrégats bruts
+            $sumCaN += $caN_val;
+            $sumCaN1 += $caN1_val;
+            $sumMbN += $mbN_val;
+            $sumMbN1 += $mbN1_val;
+            $sumDevis += $nbDevis;
+            $sumCmds += $nbCmds;
+            $sumTransfo += $nbTransfo;
+            $sumAvoirs += (int) $r['nb_avoirs'];
+            if ($caN_val > 0) {
+                ++$nbActifsN;
+            }
+            if ($caN1_val > 0) {
+                ++$nbActifsN1;
+            }
+            if ($isNew) {
+                ++$nbNouveaux;
+            }
+
+            $rows[] = [
+                'customer_id' => (int) $r['id_customer'],
+                'company' => (string) $r['company'],
+                'activity' => (string) $r['activity'],
+                'dept' => (string) $r['dept'],
+                'pays' => (string) $r['pays'],
+                'ca_n' => $this->formatAmount($caN_val),
+                'ca_n_raw' => $caN_val,
+                'ca_n1' => $this->formatAmount($caN1_val),
+                'ca_n1_raw' => $caN1_val,
+                'ecart_ca' => $this->formatAmount($caN_val - $caN1_val),
+                'ecart_ca_raw' => $caN_val - $caN1_val,
+                'pct_ca_vs_n1' => $this->formatPercent($caN_val - $caN1_val, $caN1_val),
+                'mb_n' => $this->formatAmount($mbN_val),
+                'mb_n_raw' => $mbN_val,
+                'pct_mb_n' => $this->formatPercent($mbN_val, $caN_val),
+                'mb_n1' => $this->formatAmount($mbN1_val),
+                'mb_n1_raw' => $mbN1_val,
+                'pct_mb_n1' => $this->formatPercent($mbN1_val, $caN1_val),
+                'pct_mb_vs_n1' => $this->formatPercent($mbN_val - $mbN1_val, $mbN1_val),
+                'nb_devis' => $nbDevis,
+                'nb_commandes' => $nbCmds,
+                'nb_devis_transformed' => $nbTransfo,
+                'taux_transfo' => $this->formatPercent($nbTransfo, $nbDevis),
+                'panier_moyen' => $this->formatAmount($nbCmds > 0 ? $caN_val / $nbCmds : 0),
+                'nb_avoirs' => (int) $r['nb_avoirs'],
+                'is_new_customer' => $isNew,
+            ];
+        }
+
+        $ecartCaTotal = $sumCaN - $sumCaN1;
+        $panierMoyenGlobal = $sumCmds > 0 ? $sumCaN / $sumCmds : 0.0;
+
+        $summary = [
+            'nb_actifs_n' => $nbActifsN,
+            'nb_actifs_n1' => $nbActifsN1,
+            'evol_nb_clients' => $this->formatPercent($nbActifsN - $nbActifsN1, $nbActifsN1),
+            'total_ca_n' => $this->formatAmount($sumCaN),
+            'total_ca_n1' => $this->formatAmount($sumCaN1),
+            'ecart_ca' => $this->formatAmount($ecartCaTotal),
+            'pct_ca_vs_n1' => $this->formatPercent($ecartCaTotal, $sumCaN1),
+            'total_mb_n' => $this->formatAmount($sumMbN),
+            'pct_mb_n' => $this->formatPercent($sumMbN, $sumCaN),
+            'total_mb_n1' => $this->formatAmount($sumMbN1),
+            'pct_mb_n1' => $this->formatPercent($sumMbN1, $sumCaN1),
+            'pct_mb_vs_n1' => $this->formatPercent($sumMbN - $sumMbN1, $sumMbN1),
+            'total_devis' => $sumDevis,
+            'total_cmds' => $sumCmds,
+            'total_transfo' => $sumTransfo,
+            'taux_transfo' => $this->formatPercent($sumTransfo, $sumDevis),
+            'panier_moyen' => $this->formatAmount($panierMoyenGlobal),
+            'total_avoirs' => $sumAvoirs,
+            'nb_nouveaux' => $nbNouveaux,
+        ];
+
+        return ['rows' => $rows, 'summary' => $summary];
+    }
+
     public function getDailyKpisForLastMonth($depannageRate = 1.06)
     {
         $start = new DateTime('first day of last month');
