@@ -127,6 +127,7 @@ class AdminPtsReportingController extends ModuleAdminController
         $activeTab = (string) Tools::getValue('active_tab', 'tab-ca-marge');
         $kpiMonth = max(1, min(12, (int) Tools::getValue('kpi_month', $defaultMonth)));
         $kpiYear = (int) Tools::getValue('kpi_year', $defaultYear);
+        $kpiViewMode = in_array(Tools::getValue('kpi_view_mode'), ['detail', 'cumul']) ? Tools::getValue('kpi_view_mode') : 'detail';
         $customerKpiRows = [];
         $customerKpiSummary = [];
         $exportKpiClients = (int) Tools::getValue('export_kpi_clients', 0);
@@ -173,12 +174,14 @@ class AdminPtsReportingController extends ModuleAdminController
             'active_tab' => $activeTab,
             'kpi_month' => $kpiMonth,
             'kpi_year' => $kpiYear,
+            'kpi_view_mode' => $kpiViewMode,
             'customer_kpi_rows' => $customerKpiRows,
             'customer_kpi_summary' => $customerKpiSummary,
             'kpi_export_url' => $this->context->link->getAdminLink('AdminPtsReporting', true, [], [
                 'active_tab' => 'tab-kpi-clients',
                 'kpi_month' => $kpiMonth,
                 'kpi_year' => $kpiYear,
+                'kpi_view_mode' => $kpiViewMode,
                 'export_kpi_clients' => 1,
             ]),
         ]);

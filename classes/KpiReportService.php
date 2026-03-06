@@ -532,7 +532,7 @@ class KpiReportService
     private function formatPercent($numerator, $denominator)
     {
         if ((float) $denominator === 0.0) {
-            return '0.00';
+            return (float) $numerator === 0.0 ? '0.00' : 'N/A';
         }
 
         $value = ((float) $numerator) * 100 / (float) $denominator;
