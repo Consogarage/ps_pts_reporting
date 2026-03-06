@@ -3,15 +3,14 @@
 
     <ul class="nav nav-tabs" id="pts-reporting-tabs">
         <li{if $active_tab == 'tab-ca-marge'} class="active" {/if}><a href="#tab-ca-marge"
-                data-toggle="tab">{l s='CA et marge' mod='ps_pts_reporting'} <span class="text-warning small">Les
-                    données CA et dépannage ignorent les commandes Ital Express</span></a></li>
+                data-toggle="tab">{l s='CA et marge' mod='ps_pts_reporting'} </a></li>
             <li{if $active_tab == 'tab-kpi-clients'} class="active" {/if}><a href="#tab-kpi-clients"
                     data-toggle="tab">{l s='KPI clients' mod='ps_pts_reporting'}</a></li>
     </ul>
 
     <div class="tab-content pts-reporting-tab-content">
         <div class="tab-pane{if $active_tab == 'tab-ca-marge'} active{/if}" id="tab-ca-marge">
-
+            <span class="text-warning small">Les données CA et dépannage ignorent les commandes Ital Express</span>
             <form method="get" action="{$action_url}" class="form-inline">
                 <input type="hidden" name="token" value="{$token}">
                 <input type="hidden" name="controller" value="AdminPtsReporting">
@@ -132,6 +131,7 @@
                             <th>{l s='Reference commande' mod='ps_pts_reporting'}</th>
                             <th>{l s='Date commande' mod='ps_pts_reporting'}</th>
                             <th>{l s='Date facture' mod='ps_pts_reporting'}</th>
+                            <th>{l s='Date expédition' mod='ps_pts_reporting'}</th>
                             <th>{l s='ca' mod='ps_pts_reporting'}</th>
                             <th>{l s='depannage' mod='ps_pts_reporting'}</th>
                             <th>{l s='commandes fournisseur liees' mod='ps_pts_reporting'}</th>
@@ -147,6 +147,7 @@
                                 <td>{$row.order_reference}</td>
                                 <td>{$row.order_date}</td>
                                 <td>{$row.invoice_date}</td>
+                                <td>{$row.shipping_date}</td>
                                 <td>{$row.ca_ht}</td>
                                 <td>{$row.depannage_ht}</td>
                                 <td>{$row.supplier_order_refs}</td>
@@ -207,9 +208,11 @@
                     <div class="row">
                         <div class="col-xs-12 col-sm-6 col-md-3">
                             <div class="pts-kpi-stat-block">
-                                <span class="pts-kpi-stat-label">{l s='Clients actifs N' mod='ps_pts_reporting'}</span>
+                                <span class="pts-kpi-stat-label">{l s='Clients actifs' mod='ps_pts_reporting'}
+                                    {$kpi_period_n}</span>
                                 <span class="pts-kpi-stat-value">{$customer_kpi_summary.nb_actifs_n}</span>
-                                <span class="pts-kpi-stat-sub">N-1 : {$customer_kpi_summary.nb_actifs_n1} &mdash; évol. :
+                                <span class="pts-kpi-stat-sub">{$kpi_period_n1} : {$customer_kpi_summary.nb_actifs_n1}
+                                    &mdash; évol. :
                                     <span
                                         class="{if $customer_kpi_summary.evol_nb_clients > 0}text-success{elseif $customer_kpi_summary.evol_nb_clients < 0}text-danger{/if}">{$customer_kpi_summary.evol_nb_clients}{if $customer_kpi_summary.evol_nb_clients != 'N/A'}
                                     %{/if}</span></span>
@@ -217,9 +220,10 @@
                     </div>
                     <div class="col-xs-12 col-sm-6 col-md-3">
                         <div class="pts-kpi-stat-block">
-                            <span class="pts-kpi-stat-label">{l s='CA HT N' mod='ps_pts_reporting'}</span>
-                            <span class="pts-kpi-stat-value">{$customer_kpi_summary.total_ca_n} €</span>
-                            <span class="pts-kpi-stat-sub">N-1 : {$customer_kpi_summary.total_ca_n1} € &mdash; écart :
+                            <span class="pts-kpi-stat-label">{l s='CA HT' mod='ps_pts_reporting'} {$kpi_period_n}</span>
+                            <span class="pts-kpi-stat-value">{$customer_kpi_summary.total_ca_n} €</span>
+                            <span class="pts-kpi-stat-sub">{$kpi_period_n1} : {$customer_kpi_summary.total_ca_n1} €
+                                &mdash; écart :
                                 <span
                                     class="{if $customer_kpi_summary.ecart_ca > 0}text-success{elseif $customer_kpi_summary.ecart_ca < 0}text-danger{/if}">{$customer_kpi_summary.ecart_ca} €
                                     ({$customer_kpi_summary.pct_ca_vs_n1} %)</span></span>
@@ -227,11 +231,11 @@
                     </div>
                     <div class="col-xs-12 col-sm-6 col-md-3">
                         <div class="pts-kpi-stat-block">
-                            <span class="pts-kpi-stat-label">{l s='MB HT N' mod='ps_pts_reporting'}</span>
-                            <span class="pts-kpi-stat-value">{$customer_kpi_summary.total_mb_n} €
-                                <small>({$customer_kpi_summary.pct_mb_n} %)</small></span>
-                            <span class="pts-kpi-stat-sub">N-1 : {$customer_kpi_summary.total_mb_n1} €
-                                ({$customer_kpi_summary.pct_mb_n1} %) &mdash; vs N-1 : <span
+                            <span class="pts-kpi-stat-label">{l s='MB HT' mod='ps_pts_reporting'} {$kpi_period_n}</span>
+                            <span class="pts-kpi-stat-value">{$customer_kpi_summary.total_mb_n} €
+                                <small>({$customer_kpi_summary.pct_mb_n} %)</small></span>
+                            <span class="pts-kpi-stat-sub">{$kpi_period_n1} : {$customer_kpi_summary.total_mb_n1}
+                                ({$customer_kpi_summary.pct_mb_n1} %) &mdash; évol. : <span
                                     class="{if $customer_kpi_summary.pct_mb_vs_n1 > 0}text-success{elseif $customer_kpi_summary.pct_mb_vs_n1 < 0}text-danger{/if}">{$customer_kpi_summary.pct_mb_vs_n1} %</span></span>
                         </div>
                     </div>
@@ -269,18 +273,19 @@
                             <th rowspan="2">{l s='Avoirs' mod='ps_pts_reporting'}</th>
                             {if $kpi_view_mode == 'detail'}
                                 <th rowspan="2">{l s='Nouveau' mod='ps_pts_reporting'}</th>
+                                <th rowspan="2">{l s='SIRET' mod='ps_pts_reporting'}</th>
                             {/if}
                         </tr>
                         <tr>
-                            <th>{l s='N' mod='ps_pts_reporting'}</th>
-                            <th>{l s='N-1' mod='ps_pts_reporting'}</th>
+                            <th>{$kpi_period_n}</th>
+                            <th>{$kpi_period_n1}</th>
                             <th>{l s='Écart' mod='ps_pts_reporting'}</th>
-                            <th>{l s='% vs N-1' mod='ps_pts_reporting'}</th>
-                            <th>{l s='MB N' mod='ps_pts_reporting'}</th>
-                            <th>{l s='% MB N' mod='ps_pts_reporting'}</th>
-                            <th>{l s='MB N-1' mod='ps_pts_reporting'}</th>
-                            <th>{l s='% MB N-1' mod='ps_pts_reporting'}</th>
-                            <th>{l s='% MB vs N-1' mod='ps_pts_reporting'}</th>
+                            <th>{l s='% vs' mod='ps_pts_reporting'} {$kpi_period_n1}</th>
+                            <th>{l s='MB' mod='ps_pts_reporting'} {$kpi_period_n}</th>
+                            <th>{l s='% MB' mod='ps_pts_reporting'} {$kpi_period_n}</th>
+                            <th>{l s='MB' mod='ps_pts_reporting'} {$kpi_period_n1}</th>
+                            <th>{l s='% MB' mod='ps_pts_reporting'} {$kpi_period_n1}</th>
+                            <th>{l s='% MB vs' mod='ps_pts_reporting'} {$kpi_period_n1}</th>
                             <th>{l s='Nb' mod='ps_pts_reporting'}</th>
                             <th>{l s='Cdes' mod='ps_pts_reporting'}</th>
                             <th>{l s='Transformés' mod='ps_pts_reporting'}</th>
@@ -342,6 +347,7 @@
                                     <td class="text-right">{$row.panier_moyen}</td>
                                     <td class="text-right">{$row.nb_avoirs}</td>
                                     <td class="text-center">{if $row.is_new_customer}✓{/if}</td>
+                                    <td>{$row.siret}</td>
                                     </tr>
                                 {/foreach}
                             {/if}

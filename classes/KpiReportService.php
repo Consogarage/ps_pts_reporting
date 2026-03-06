@@ -73,11 +73,16 @@ class KpiReportService
             . " AND oi1.date_add >= '{$start}'"
             . " AND oi1.date_add <= '{$end}')";
 
+        $shippingDateSubquery =
+            "(SELECT DATE(MIN(oh.date_add)) FROM {$prefix}order_history oh"
+            . " WHERE oh.id_order = o.id_order AND oh.id_order_state = 4)";
+
         $sql = new DbQuery();
         $sql->select('o.id_order');
         $sql->select('o.reference AS order_reference');
         $sql->select('DATE(o.date_add) AS order_day');
         $sql->select($invoiceDateSubquery . ' AS invoice_day');
+        $sql->select($shippingDateSubquery . ' AS shipping_day');
         $sql->select(
             "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
             . " FROM {$prefix}order_detail od"
@@ -121,6 +126,7 @@ class KpiReportService
                 'order_date' => $result['order_day'],
                 'order_reference' => $result['order_reference'],
                 'invoice_date' => $result['invoice_day'] ?: $result['order_day'],
+                'shipping_date' => $result['shipping_day'] ?: '',
                 'ca_ht' => $caHt,
                 'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
@@ -134,24 +140,25 @@ class KpiReportService
 
     /**
      * KPI clients pour un mois donné vs N-1 (même mois, année précédente).
-     * Colonnes : client, activité, dept, pays, CA N, CA N-1, écart CA, % CA vs N-1,
-     *            MB N, % MB N, MB N-1, % MB N-1, % MB vs N-1,
-     *            devis, commandes, devis transformés, taux transfo, panier moyen,
-     *            avoirs, nouveau client.
+     * Si $ytd = true, la période N va du 1er janvier jusqu'à la fin du mois sélectionné (cumul YTD).
      */
-    public function getCustomerKpis($year, $month)
+    public function getCustomerKpis($year, $month, $ytd = false)
     {
         $prefix = _DB_PREFIX_;
 
         $dateN = DateTime::createFromFormat('Y-n-j', $year . '-' . $month . '-1');
         $dateN->modify('last day of this month');
-        $startN = pSQL(sprintf('%04d-%02d-01 00:00:00', $year, $month));
+        $startN = $ytd
+            ? pSQL(sprintf('%04d-01-01 00:00:00', $year))
+            : pSQL(sprintf('%04d-%02d-01 00:00:00', $year, $month));
         $endN = pSQL($dateN->format('Y-m-d') . ' 23:59:59');
 
         $yearN1 = $year - 1;
         $dateN1 = DateTime::createFromFormat('Y-n-j', $yearN1 . '-' . $month . '-1');
         $dateN1->modify('last day of this month');
-        $startN1 = pSQL(sprintf('%04d-%02d-01 00:00:00', $yearN1, $month));
+        $startN1 = $ytd
+            ? pSQL(sprintf('%04d-01-01 00:00:00', $yearN1))
+            : pSQL(sprintf('%04d-%02d-01 00:00:00', $yearN1, $month));
         $endN1 = pSQL($dateN1->format('Y-m-d') . ' 23:59:59');
 
         // Filtre commandes valides (hors annulées / remboursées)
@@ -214,9 +221,13 @@ class KpiReportService
         // Nouveau client : première facture dans la période N
         $nouveauClient = "CASE WHEN (SELECT MIN(oi.date_add) FROM {$prefix}orders o INNER JOIN {$prefix}order_invoice oi ON oi.id_order = o.id_order WHERE o.id_customer = c.id_customer) BETWEEN '{$startN}' AND '{$endN}' THEN 1 ELSE 0 END";
 
+        $siretSub = "(SELECT a.dni FROM {$prefix}address a WHERE a.id_customer = c.id_customer AND a.deleted = 0 ORDER BY a.id_address ASC LIMIT 1)";
+
         $sql = "SELECT
             c.id_customer,
             c.company,
+            c.firstname,
+            c.lastname,
             IFNULL({$activitySub}, '') AS activity,
             IFNULL({$deptSub}, '') AS dept,
             IFNULL({$paysSub}, '') AS pays,
@@ -229,10 +240,11 @@ class KpiReportService
             {$nbCmdsN} AS nb_commandes,
             {$nbDevisTransformedN} AS nb_devis_transformed,
             {$nbAvoirsN} AS nb_avoirs,
-            {$nouveauClient} AS is_new_customer
+            {$nouveauClient} AS is_new_customer,
+            IFNULL({$siretSub}, '') AS siret
         FROM {$prefix}customer c
         WHERE {$nbCmdsN} > 0 OR {$nbCmdsN1} > 0
-        ORDER BY c.company ASC";
+        ORDER BY IFNULL(NULLIF(c.company, ''), CONCAT(c.firstname, ' ', c.lastname)) ASC";
 
         $results = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
         $rows = [];
@@ -285,7 +297,7 @@ class KpiReportService
 
             $rows[] = [
                 'customer_id' => (int) $r['id_customer'],
-                'company' => (string) $r['company'],
+                'company' => (string) ($r['company'] ?: trim($r['firstname'] . ' ' . $r['lastname'])),
                 'activity' => (string) $r['activity'],
                 'dept' => (string) $r['dept'],
                 'pays' => (string) $r['pays'],
@@ -310,6 +322,7 @@ class KpiReportService
                 'panier_moyen' => $this->formatAmount($nbCmds > 0 ? $caN_val / $nbCmds : 0),
                 'nb_avoirs' => (int) $r['nb_avoirs'],
                 'is_new_customer' => $isNew,
+                'siret' => (string) ($r['siret'] ?? ''),
             ];
         }
 
@@ -492,6 +505,7 @@ class KpiReportService
                 'order_date' => $this->formatDate($row['order_date']),
                 'order_reference' => $row['order_reference'],
                 'invoice_date' => $this->formatDate($row['invoice_date']),
+                'shipping_date' => $this->formatDate($row['shipping_date'] ?? ''),
                 'ca_ht' => $this->formatAmount($caHt),
                 'depannage_ht' => $this->formatAmount($depannageHt),
                 'mb_ht' => $this->formatAmount($mbHt),
