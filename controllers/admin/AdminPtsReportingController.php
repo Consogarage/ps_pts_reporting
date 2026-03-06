@@ -452,7 +452,6 @@ class AdminPtsReportingController extends ModuleAdminController
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Cache-Control: max-age=0');
         $writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($spreadsheet, 'Xlsx');
-        $writer->setPreCalculateFormulas(false);
         $writer->save('php://output');
         exit;
     }
