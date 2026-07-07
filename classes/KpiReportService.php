@@ -77,6 +77,18 @@ class KpiReportService
             "(SELECT DATE(MIN(oh.date_add)) FROM {$prefix}order_history oh"
             . " WHERE oh.id_order = o.id_order AND oh.id_order_state = 4)";
 
+        // Avoirs / remboursements produits HT liés à la commande.
+        // On exclut, comme pour le CA, les produits du fournisseur 'ital express'.
+        $avoirSubquery =
+            "(SELECT IFNULL(SUM(osd.total_price_tax_excl), 0)"
+            . " FROM {$prefix}order_slip os2"
+            . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os2.id_order_slip"
+            . " INNER JOIN {$prefix}order_detail od3 ON od3.id_order_detail = osd.id_order_detail"
+            . " LEFT JOIN {$prefix}product p3 ON p3.id_product = od3.product_id"
+            . " LEFT JOIN {$prefix}supplier sup3 ON sup3.id_supplier = p3.id_supplier"
+            . " WHERE os2.id_order = o.id_order"
+            . " AND (sup3.name IS NULL OR LOWER(sup3.name) != 'ital express'))";
+
         $sql = new DbQuery();
         $sql->select('o.id_order');
         $sql->select('o.reference AS order_reference');
@@ -92,6 +104,7 @@ class KpiReportService
             . " AND (sup.name IS NULL OR LOWER(sup.name) != 'ital express')) AS ca_ht"
         );
         $sql->select($depannageSubquery . ' AS depannage_ht_raw');
+        $sql->select($avoirSubquery . ' AS avoir_ht');
         $sql->select(
             "IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', wod.quantity, 'x ',"
             . " COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))),"
@@ -118,7 +131,9 @@ class KpiReportService
         $rows = [];
 
         foreach ($results as $result) {
-            $caHt = (float) $result['ca_ht'];
+            // CA net des avoirs / remboursements produits (HT).
+            $avoirHt = (float) $result['avoir_ht'];
+            $caHt = (float) $result['ca_ht'] - $avoirHt;
             $depannageHtRaw = (float) $result['depannage_ht_raw'];
             $depannageHt = $depannageHtRaw * (float) $depannageRate;
 
@@ -128,6 +143,7 @@ class KpiReportService
                 'invoice_date' => $result['invoice_day'] ?: $result['order_day'],
                 'shipping_date' => $result['shipping_day'] ?: '',
                 'ca_ht' => $caHt,
+                'avoir_ht' => $avoirHt,
                 'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
                 'mb_ht' => $caHt - $depannageHt,
@@ -175,6 +191,19 @@ class KpiReportService
 
         $caN1 = "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
             . " FROM {$prefix}orders o INNER JOIN {$prefix}order_detail od ON od.id_order = o.id_order"
+            . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
+
+        // Sous-requête : avoirs / remboursements produits HT sur les commandes facturées de la période
+        $avoirN = "(SELECT IFNULL(SUM(osd.total_price_tax_excl), 0)"
+            . " FROM {$prefix}orders o"
+            . " INNER JOIN {$prefix}order_slip os ON os.id_order = o.id_order"
+            . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os.id_order_slip"
+            . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
+
+        $avoirN1 = "(SELECT IFNULL(SUM(osd.total_price_tax_excl), 0)"
+            . " FROM {$prefix}orders o"
+            . " INNER JOIN {$prefix}order_slip os ON os.id_order = o.id_order"
+            . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os.id_order_slip"
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
 
         // Sous-requête : achats dépannage pour une période (somme wkdelivery)
@@ -231,11 +260,11 @@ class KpiReportService
             IFNULL({$activitySub}, '') AS activity,
             IFNULL({$deptSub}, '') AS dept,
             IFNULL({$paysSub}, '') AS pays,
-            ROUND({$caN}, 2) AS ca_n,
-            ROUND({$caN1}, 2) AS ca_n1,
-            ROUND({$caN} - {$caN1}, 2) AS ecart_ca,
-            ROUND({$caN} - {$depannageN}, 2) AS mb_n,
-            ROUND({$caN1} - {$depannageN1}, 2) AS mb_n1,
+            ROUND({$caN} - {$avoirN}, 2) AS ca_n,
+            ROUND({$caN1} - {$avoirN1}, 2) AS ca_n1,
+            ROUND(({$caN} - {$avoirN}) - ({$caN1} - {$avoirN1}), 2) AS ecart_ca,
+            ROUND(({$caN} - {$avoirN}) - {$depannageN}, 2) AS mb_n,
+            ROUND(({$caN1} - {$avoirN1}) - {$depannageN1}, 2) AS mb_n1,
             {$nbDevisN} AS nb_devis,
             {$nbCmdsN} AS nb_commandes,
             {$nbDevisTransformedN} AS nb_devis_transformed,
