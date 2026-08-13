@@ -80,7 +80,8 @@ class KpiReportService
         // Avoirs / remboursements produits HT liés à la commande.
         // On exclut, comme pour le CA, les produits du fournisseur 'ital express'.
         $avoirSubquery =
-            "(SELECT IFNULL(SUM(osd.total_price_tax_excl), 0)"
+            "(SELECT IFNULL(SUM(osd.total_price_tax_excl"
+            . " - (COALESCE(od3.product_consigne_tax_excl, 0) * osd.product_quantity)), 0)"
             . " FROM {$prefix}order_slip os2"
             . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os2.id_order_slip"
             . " INNER JOIN {$prefix}order_detail od3 ON od3.id_order_detail = osd.id_order_detail"
@@ -96,7 +97,8 @@ class KpiReportService
         $sql->select($invoiceDateSubquery . ' AS invoice_day');
         $sql->select($shippingDateSubquery . ' AS shipping_day');
         $sql->select(
-            "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
+            "(SELECT IFNULL(SUM(od.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
             . " FROM {$prefix}order_detail od"
             . " LEFT JOIN {$prefix}product p ON p.id_product = od.product_id"
             . " LEFT JOIN {$prefix}supplier sup ON sup.id_supplier = p.id_supplier"
@@ -123,7 +125,7 @@ class KpiReportService
             . " AND oi.date_add >= '{$start}'"
             . " AND oi.date_add <= '{$end}')"
         );
-        $sql->where('o.current_state IN (4, 5, 18)');
+        $sql->where('o.current_state IN (4, 5, 7, 18)');
         $sql->groupBy('o.id_order');
         $sql->orderBy('invoice_day ASC');
 
@@ -177,33 +179,39 @@ class KpiReportService
             : pSQL(sprintf('%04d-%02d-01 00:00:00', $yearN1, $month));
         $endN1 = pSQL($dateN1->format('Y-m-d') . ' 23:59:59');
 
-        // Filtre commandes valides (hors annulées / remboursées)
-        $validStates = 'NOT IN (6, 7)';
+        // Filtre commandes valides (hors annulées)
+        $validStates = 'NOT IN (6)';
 
         // Existence facture dans période N
         $invoicedN = "EXISTS (SELECT 1 FROM {$prefix}order_invoice oi WHERE oi.id_order = o.id_order AND oi.date_add >= '{$startN}' AND oi.date_add <= '{$endN}')";
         $invoicedN1 = "EXISTS (SELECT 1 FROM {$prefix}order_invoice oi WHERE oi.id_order = o.id_order AND oi.date_add >= '{$startN1}' AND oi.date_add <= '{$endN1}')";
 
         // Sous-requête : CA pour une période (somme toutes lignes commandes)
-        $caN = "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
+        $caN = "(SELECT IFNULL(SUM(od.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
             . " FROM {$prefix}orders o INNER JOIN {$prefix}order_detail od ON od.id_order = o.id_order"
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
 
-        $caN1 = "(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)"
+        $caN1 = "(SELECT IFNULL(SUM(od.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
             . " FROM {$prefix}orders o INNER JOIN {$prefix}order_detail od ON od.id_order = o.id_order"
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
 
         // Sous-requête : avoirs / remboursements produits HT sur les commandes facturées de la période
-        $avoirN = "(SELECT IFNULL(SUM(osd.total_price_tax_excl), 0)"
+        $avoirN = "(SELECT IFNULL(SUM(osd.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)), 0)"
             . " FROM {$prefix}orders o"
             . " INNER JOIN {$prefix}order_slip os ON os.id_order = o.id_order"
             . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os.id_order_slip"
+            . " INNER JOIN {$prefix}order_detail od ON od.id_order_detail = osd.id_order_detail"
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
 
-        $avoirN1 = "(SELECT IFNULL(SUM(osd.total_price_tax_excl), 0)"
+        $avoirN1 = "(SELECT IFNULL(SUM(osd.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)), 0)"
             . " FROM {$prefix}orders o"
             . " INNER JOIN {$prefix}order_slip os ON os.id_order = o.id_order"
             . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os.id_order_slip"
+            . " INNER JOIN {$prefix}order_detail od ON od.id_order_detail = osd.id_order_detail"
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
 
         // Sous-requête : achats dépannage pour une période (somme wkdelivery)
@@ -417,7 +425,8 @@ class KpiReportService
         $sql->select('o.reference AS order_reference');
         $sql->select('DATE(o.invoice_date) AS invoice_day');
         $sql->select(
-            '(SELECT IFNULL(SUM(od.total_price_tax_excl), 0)'
+            '(SELECT IFNULL(SUM(od.total_price_tax_excl'
+            . ' - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)'
             . ' FROM ' . _DB_PREFIX_ . 'order_detail od'
             . ' LEFT JOIN ' . _DB_PREFIX_ . 'product p'
             . ' ON p.id_product = od.product_id'
