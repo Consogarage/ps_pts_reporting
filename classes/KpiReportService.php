@@ -77,18 +77,15 @@ class KpiReportService
             "(SELECT DATE(MIN(oh.date_add)) FROM {$prefix}order_history oh"
             . " WHERE oh.id_order = o.id_order AND oh.id_order_state = 4)";
 
-        // Avoirs / remboursements produits HT liés à la commande.
-        // On exclut, comme pour le CA, les produits du fournisseur 'ital express'.
+        // Avoirs / remboursements produits HT liés à la commande,
+        // y compris ceux concernant des produits Ital Express.
         $avoirSubquery =
             "(SELECT IFNULL(SUM(osd.total_price_tax_excl"
             . " - (COALESCE(od3.product_consigne_tax_excl, 0) * osd.product_quantity)), 0)"
             . " FROM {$prefix}order_slip os2"
             . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os2.id_order_slip"
             . " INNER JOIN {$prefix}order_detail od3 ON od3.id_order_detail = osd.id_order_detail"
-            . " LEFT JOIN {$prefix}product p3 ON p3.id_product = od3.product_id"
-            . " LEFT JOIN {$prefix}supplier sup3 ON sup3.id_supplier = p3.id_supplier"
-            . " WHERE os2.id_order = o.id_order"
-            . " AND (sup3.name IS NULL OR LOWER(sup3.name) != 'ital express'))";
+            . " WHERE os2.id_order = o.id_order)";
 
         $sql = new DbQuery();
         $sql->select('o.id_order');
