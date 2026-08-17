@@ -85,7 +85,9 @@ class KpiReportService
             . " FROM {$prefix}order_slip os2"
             . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os2.id_order_slip"
             . " INNER JOIN {$prefix}order_detail od3 ON od3.id_order_detail = osd.id_order_detail"
-            . " WHERE os2.id_order = o.id_order)";
+            . " WHERE os2.id_order = o.id_order"
+            . " AND os2.date_add >= '{$start}'"
+            . " AND os2.date_add <= '{$end}')";
 
         $sql = new DbQuery();
         $sql->select('o.id_order');
@@ -149,6 +151,59 @@ class KpiReportService
                 'marge_nette' => $caHt - $depannageHtRaw,
             ];
         }
+
+        // Les avoirs créés dans la période dont la facture d'origine est hors période
+        // doivent être comptabilisés seuls, en négatif, à leur date de création.
+        $orphanSlipsSql = "SELECT
+                o.id_order,
+                o.reference AS order_reference,
+                DATE(o.date_add) AS order_day,
+                DATE(os.date_add) AS slip_day,
+                IFNULL(SUM(osd.total_price_tax_excl
+                    - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)), 0) AS avoir_ht
+            FROM {$prefix}order_slip os
+            INNER JOIN {$prefix}orders o ON o.id_order = os.id_order
+            INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os.id_order_slip
+            INNER JOIN {$prefix}order_detail od ON od.id_order_detail = osd.id_order_detail
+            WHERE os.date_add >= '{$start}'
+                AND os.date_add <= '{$end}'
+                AND (
+                    o.current_state NOT IN (4, 5, 7, 18)
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM {$prefix}order_invoice oi
+                        WHERE oi.id_order = o.id_order
+                            AND oi.date_add >= '{$start}'
+                            AND oi.date_add <= '{$end}'
+                    )
+                )
+            GROUP BY os.id_order_slip, o.id_order, o.reference, o.date_add, os.date_add
+            ORDER BY os.date_add ASC";
+
+        $orphanSlips = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($orphanSlipsSql);
+        if (is_array($orphanSlips)) {
+            foreach ($orphanSlips as $orphanSlip) {
+                $avoirHt = (float) $orphanSlip['avoir_ht'];
+                $negativeAmount = -$avoirHt;
+
+                $rows[] = [
+                    'order_date' => $orphanSlip['order_day'],
+                    'order_reference' => $orphanSlip['order_reference'],
+                    'invoice_date' => $orphanSlip['slip_day'],
+                    'shipping_date' => '',
+                    'ca_ht' => $negativeAmount,
+                    'avoir_ht' => $avoirHt,
+                    'depannage_ht' => 0.0,
+                    'supplier_order_refs' => '',
+                    'mb_ht' => $negativeAmount,
+                    'marge_nette' => $negativeAmount,
+                ];
+            }
+        }
+
+        usort($rows, function ($left, $right) {
+            return strcmp($left['invoice_date'], $right['invoice_date']);
+        });
 
         return $rows;
     }
