@@ -60,7 +60,7 @@ class KpiReportService
             . " END)";
 
         $depannageSubquery =
-            "(SELECT IFNULL(SUM(wod2.unit_price_te * wod2.quantity * ({$depannageProportion})), 0)"
+            "(SELECT IFNULL(SUM(wod2.unit_price_te * COALESCE(NULLIF(wod2.real_quantity, 0), wod2.quantity) * ({$depannageProportion})), 0)"
             . " FROM {$prefix}wkdelivery_order_detail wod2"
             . " INNER JOIN {$prefix}wkdelivery_orders wo2 ON wo2.id_wkdelivery_orders = wod2.id_delivery"
             . " LEFT JOIN {$prefix}supplier wksup ON wksup.id_supplier = wo2.id_supplier"
@@ -121,7 +121,7 @@ class KpiReportService
         $sql->select($avoirSubquery . ' AS avoir_ht');
         $sql->select($avoirItalSubquery . ' AS avoir_ital_ht');
         $sql->select(
-            "IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', wod.quantity, 'x ',"
+            "IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', COALESCE(NULLIF(wod.real_quantity, 0), wod.quantity), 'x ',"
             . " COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))),"
             . " ']') ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs"
         );
@@ -282,13 +282,13 @@ class KpiReportService
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN1})";
 
         // Sous-requête : achats dépannage pour une période (somme wkdelivery)
-        $depannageN = "(SELECT IFNULL(SUM(wod.unit_price_te * wod.quantity), 0)"
+        $depannageN = "(SELECT IFNULL(SUM(wod.unit_price_te * COALESCE(NULLIF(wod.real_quantity, 0), wod.quantity)), 0)"
             . " FROM {$prefix}orders o"
             . " INNER JOIN {$prefix}wkdelivery_order_detail wod"
             . "   ON FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
             . " WHERE o.id_customer = c.id_customer AND o.current_state {$validStates} AND {$invoicedN})";
 
-        $depannageN1 = "(SELECT IFNULL(SUM(wod.unit_price_te * wod.quantity), 0)"
+        $depannageN1 = "(SELECT IFNULL(SUM(wod.unit_price_te * COALESCE(NULLIF(wod.real_quantity, 0), wod.quantity)), 0)"
             . " FROM {$prefix}orders o"
             . " INNER JOIN {$prefix}wkdelivery_order_detail wod"
             . "   ON FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
@@ -504,7 +504,7 @@ class KpiReportService
             . ') AS ca_ht'
         );
         $sql->select(
-            "(SELECT IFNULL(SUM((wod2.unit_price_te * wod2.quantity) * ("
+            "(SELECT IFNULL(SUM((wod2.unit_price_te * COALESCE(NULLIF(wod2.real_quantity, 0), wod2.quantity)) * ("
             . " ((LENGTH(CONCAT(',', REPLACE(TRIM(BOTH '|' FROM IFNULL(wod2.customer_id_orders, '')), '|', ','), ','))"
             . " - LENGTH(REPLACE(CONCAT(',', REPLACE(TRIM(BOTH '|' FROM IFNULL(wod2.customer_id_orders, '')), '|', ','), ','), CONCAT(',', o.id_order, ','), '')))"
             . " / LENGTH(CONCAT(',', o.id_order, ',')))"
@@ -522,7 +522,7 @@ class KpiReportService
             . " AND (wksup.name IS NULL OR LOWER(wksup.name) != 'ital express')"
             . ') AS depannage_ht'
         );
-        $sql->select("IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', wod.quantity, 'x ', COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))), ']') ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
+        $sql->select("IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', COALESCE(NULLIF(wod.real_quantity, 0), wod.quantity), 'x ', COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))), ']') ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs");
         $sql->select(
             '(SELECT IFNULL(SUM(od.product_quantity * COALESCE(ps.product_supplier_price_te, 0)), 0)'
             . ' FROM ' . _DB_PREFIX_ . 'order_detail od'
