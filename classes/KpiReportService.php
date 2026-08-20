@@ -89,6 +89,19 @@ class KpiReportService
             . " AND os2.date_add >= '{$start}'"
             . " AND os2.date_add <= '{$end}')";
 
+        $avoirItalSubquery =
+            "(SELECT IFNULL(SUM(osd.total_price_tax_excl"
+            . " - (COALESCE(od3.product_consigne_tax_excl, 0) * osd.product_quantity)), 0)"
+            . " FROM {$prefix}order_slip os2"
+            . " INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os2.id_order_slip"
+            . " INNER JOIN {$prefix}order_detail od3 ON od3.id_order_detail = osd.id_order_detail"
+            . " LEFT JOIN {$prefix}product p3 ON p3.id_product = od3.product_id"
+            . " LEFT JOIN {$prefix}supplier sup3 ON sup3.id_supplier = p3.id_supplier"
+            . " WHERE os2.id_order = o.id_order"
+            . " AND os2.date_add >= '{$start}'"
+            . " AND os2.date_add <= '{$end}'"
+            . " AND LOWER(sup3.name) = 'ital express')";
+
         $sql = new DbQuery();
         $sql->select('o.id_order');
         $sql->select('o.reference AS order_reference');
@@ -106,6 +119,7 @@ class KpiReportService
         );
         $sql->select($depannageSubquery . ' AS depannage_ht_raw');
         $sql->select($avoirSubquery . ' AS avoir_ht');
+        $sql->select($avoirItalSubquery . ' AS avoir_ital_ht');
         $sql->select(
             "IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', wod.quantity, 'x ',"
             . " COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))),"
@@ -134,7 +148,8 @@ class KpiReportService
         foreach ($results as $result) {
             // CA net des avoirs / remboursements produits (HT).
             $avoirHt = (float) $result['avoir_ht'];
-            $caHt = (float) $result['ca_ht'] - $avoirHt;
+            $avoirItalHt = (float) $result['avoir_ital_ht'];
+            $caHt = (float) $result['ca_ht'] - ($avoirHt - $avoirItalHt);
             $depannageHtRaw = (float) $result['depannage_ht_raw'];
             $depannageHt = $depannageHtRaw * (float) $depannageRate;
 
@@ -147,8 +162,8 @@ class KpiReportService
                 'avoir_ht' => $avoirHt,
                 'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
-                'mb_ht' => $caHt - $depannageHt,
-                'marge_nette' => $caHt - $depannageHtRaw,
+                'mb_ht' => $caHt - $depannageHt - $avoirItalHt,
+                'marge_nette' => $caHt - $depannageHtRaw - $avoirItalHt,
             ];
         }
 
