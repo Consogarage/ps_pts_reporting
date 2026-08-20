@@ -1,2 +1,4 @@
 .vscode/
-.exports/*
+/doc/
+/exports/*
+!/exports/index.php

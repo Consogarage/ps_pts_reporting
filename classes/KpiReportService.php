@@ -59,6 +59,12 @@ class KpiReportService
             . " ELSE (LENGTH(TRIM(BOTH '|' FROM wod2.customer_id_orders)) - LENGTH(REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', '')) + 1)"
             . " END)";
 
+        $creditedPurchaseProportion =
+            "((LENGTH(IFNULL(wod3.customer_id_orders, '')) - LENGTH(REPLACE(IFNULL(wod3.customer_id_orders, ''), CONCAT('|', o.id_order, '|'), ''))) / LENGTH(CONCAT('|', o.id_order, '|')))"
+            . " / (CASE WHEN TRIM(BOTH '|' FROM IFNULL(wod3.customer_id_orders, '')) = '' THEN 1"
+            . " ELSE (LENGTH(TRIM(BOTH '|' FROM wod3.customer_id_orders)) - LENGTH(REPLACE(TRIM(BOTH '|' FROM wod3.customer_id_orders), '|', '')) + 1)"
+            . " END)";
+
         $depannageSubquery =
             "(SELECT IFNULL(SUM(wod2.unit_price_te * COALESCE(NULLIF(wod2.real_quantity, 0), wod2.quantity) * ({$depannageProportion})), 0)"
             . " FROM {$prefix}wkdelivery_order_detail wod2"
@@ -66,6 +72,42 @@ class KpiReportService
             . " LEFT JOIN {$prefix}supplier wksup ON wksup.id_supplier = wo2.id_supplier"
             . " WHERE FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod2.customer_id_orders), '|', ','))"
             . " AND (wksup.name IS NULL OR LOWER(wksup.name) != 'ital express'))";
+
+        $creditedPurchaseSubquery =
+            "(SELECT IFNULL(SUM(wod3.unit_price_te * COALESCE(NULLIF(wod3.real_quantity, 0), wod3.quantity) * ({$creditedPurchaseProportion})), 0)"
+            . " FROM {$prefix}wkdelivery_order_detail wod3"
+            . " INNER JOIN {$prefix}wkdelivery_orders wo3 ON wo3.id_wkdelivery_orders = wod3.id_delivery"
+            . " LEFT JOIN {$prefix}supplier wksup3 ON wksup3.id_supplier = wo3.id_supplier"
+            . " WHERE FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod3.customer_id_orders), '|', ','))"
+            . " AND o.current_state != 7"
+            . " AND (wksup3.name IS NULL OR LOWER(wksup3.name) != 'ital express')"
+            . " AND EXISTS (SELECT 1 FROM {$prefix}order_detail od4"
+            . " INNER JOIN {$prefix}order_slip_detail osd4 ON osd4.id_order_detail = od4.id_order_detail"
+            . " INNER JOIN {$prefix}order_slip os4 ON os4.id_order_slip = osd4.id_order_slip"
+            . " WHERE od4.id_order = o.id_order"
+            . " AND od4.product_id = wod3.id_product"
+            . " AND od4.product_attribute_id = wod3.id_product_attribute"
+            . " AND os4.date_add >= '{$start}' AND os4.date_add <= '{$end}'))";
+
+        $creditedNetSalesSubquery =
+            "(SELECT IFNULL(SUM((od4.total_price_tax_excl"
+            . " - (COALESCE(od4.product_consigne_tax_excl, 0) * od4.product_quantity))"
+            . " - (SELECT IFNULL(SUM(osd4.total_price_tax_excl"
+            . " - (COALESCE(od4.product_consigne_tax_excl, 0) * osd4.product_quantity)), 0)"
+            . " FROM {$prefix}order_slip_detail osd4"
+            . " INNER JOIN {$prefix}order_slip os4 ON os4.id_order_slip = osd4.id_order_slip"
+            . " WHERE osd4.id_order_detail = od4.id_order_detail"
+            . " AND os4.date_add >= '{$start}' AND os4.date_add <= '{$end}')), 0)"
+            . " FROM {$prefix}order_detail od4"
+            . " LEFT JOIN {$prefix}product p4 ON p4.id_product = od4.product_id"
+            . " LEFT JOIN {$prefix}supplier sup4 ON sup4.id_supplier = p4.id_supplier"
+            . " WHERE od4.id_order = o.id_order"
+            . " AND o.current_state != 7"
+            . " AND (sup4.name IS NULL OR LOWER(sup4.name) != 'ital express')"
+            . " AND EXISTS (SELECT 1 FROM {$prefix}order_slip_detail osd5"
+            . " INNER JOIN {$prefix}order_slip os5 ON os5.id_order_slip = osd5.id_order_slip"
+            . " WHERE osd5.id_order_detail = od4.id_order_detail"
+            . " AND os5.date_add >= '{$start}' AND os5.date_add <= '{$end}'))";
 
         $invoiceDateSubquery =
             "(SELECT DATE(MIN(oi1.date_add)) FROM {$prefix}order_invoice oi1"
@@ -117,7 +159,25 @@ class KpiReportService
             . " WHERE od.id_order = o.id_order"
             . " AND (sup.name IS NULL OR LOWER(sup.name) != 'ital express')) AS ca_ht"
         );
+        $sql->select(
+            "(SELECT IFNULL(SUM(COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity), 0)"
+            . " FROM {$prefix}order_detail od WHERE od.id_order = o.id_order) AS consigne_ht"
+        );
+        $sql->select(
+            "(SELECT IFNULL(SUM(od.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
+            . " FROM {$prefix}order_detail od"
+            . " LEFT JOIN {$prefix}product p ON p.id_product = od.product_id"
+            . " LEFT JOIN {$prefix}supplier sup ON sup.id_supplier = p.id_supplier"
+            . " WHERE od.id_order = o.id_order"
+            . " AND LOWER(sup.name) = 'ital express'"
+            . " AND EXISTS (SELECT 1 FROM {$prefix}order_detail odc"
+            . " WHERE odc.id_order = o.id_order"
+            . " AND COALESCE(odc.product_consigne_tax_excl, 0) > 0)) AS consigned_order_ital_ca_ht"
+        );
         $sql->select($depannageSubquery . ' AS depannage_ht_raw');
+        $sql->select($creditedPurchaseSubquery . ' AS credited_purchase_ht_raw');
+        $sql->select($creditedNetSalesSubquery . ' AS credited_net_sales_ht');
         $sql->select($avoirSubquery . ' AS avoir_ht');
         $sql->select($avoirItalSubquery . ' AS avoir_ital_ht');
         $sql->select(
@@ -149,9 +209,14 @@ class KpiReportService
             // CA net des avoirs / remboursements produits (HT).
             $avoirHt = (float) $result['avoir_ht'];
             $avoirItalHt = (float) $result['avoir_ital_ht'];
-            $caHt = (float) $result['ca_ht'] - ($avoirHt - $avoirItalHt);
+            $consigneHt = (float) $result['consigne_ht'];
+            $caHt = (float) $result['ca_ht']
+                + (float) $result['consigned_order_ital_ca_ht']
+                - ($avoirHt - $avoirItalHt);
             $depannageHtRaw = (float) $result['depannage_ht_raw'];
             $depannageHt = $depannageHtRaw * (float) $depannageRate;
+            $creditedPurchaseHtRaw = (float) $result['credited_purchase_ht_raw'];
+            $creditedNetSalesHt = (float) $result['credited_net_sales_ht'];
 
             $rows[] = [
                 'order_date' => $result['order_day'],
@@ -162,8 +227,10 @@ class KpiReportService
                 'avoir_ht' => $avoirHt,
                 'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
-                'mb_ht' => $caHt - $depannageHt - $avoirItalHt,
-                'marge_nette' => $caHt - $depannageHtRaw - $avoirItalHt,
+                'mb_ht' => $caHt - $depannageHt - $avoirItalHt + $consigneHt
+                    + ($creditedPurchaseHtRaw * (float) $depannageRate) - $creditedNetSalesHt,
+                'marge_nette' => $caHt - $depannageHtRaw - $avoirItalHt + $consigneHt
+                    + $creditedPurchaseHtRaw - $creditedNetSalesHt,
             ];
         }
 
