@@ -182,6 +182,7 @@ class KpiReportService
         $sql = new DbQuery();
         $sql->select('o.id_order');
         $sql->select('o.reference AS order_reference');
+        $sql->select('o.current_state AS order_state');
         $sql->select('DATE(o.date_add) AS order_day');
         $sql->select($invoiceDateSubquery . ' AS invoice_day');
         $sql->select($shippingDateSubquery . ' AS shipping_day');
@@ -275,6 +276,17 @@ class KpiReportService
                 $margeAdjustmentHt -= 20.0;
             }
 
+            $mbHt = $caHt - $depannageHt - $italAvoirMarginHt
+                + ($creditedPurchaseHtRaw * (float) $depannageRate) - $missingSupplierPurchaseHt
+                - ($includedItalPurchaseHt * (float) $depannageRate) + ($margeAdjustmentHt * (float) $depannageRate);
+            $margeNette = $caHt - $depannageHtRaw - $italAvoirMarginHt
+                + $creditedPurchaseHtRaw - $missingSupplierPurchaseHt - $includedItalPurchaseHt + $margeAdjustmentHt;
+
+            if ((int) $result['order_state'] === 7 && $caHt == 0.0 && $depannageHtRaw > 0.0) {
+                $mbHt = -$depannageHt;
+                $margeNette = -$depannageHtRaw;
+            }
+
             $rows[] = [
                 'order_date' => $result['order_day'],
                 'order_reference' => $result['order_reference'],
@@ -284,11 +296,8 @@ class KpiReportService
                 'avoir_ht' => $avoirHt,
                 'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
-                'mb_ht' => $caHt - $depannageHt - $italAvoirMarginHt
-                    + ($creditedPurchaseHtRaw * (float) $depannageRate) - $missingSupplierPurchaseHt
-                    - ($includedItalPurchaseHt * (float) $depannageRate) + ($margeAdjustmentHt * (float) $depannageRate),
-                'marge_nette' => $caHt - $depannageHtRaw - $italAvoirMarginHt
-                    + $creditedPurchaseHtRaw - $missingSupplierPurchaseHt - $includedItalPurchaseHt + $margeAdjustmentHt,
+                'mb_ht' => $mbHt,
+                'marge_nette' => $margeNette,
             ];
         }
 
