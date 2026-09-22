@@ -92,8 +92,16 @@ class KpiReportService
             . " AND (supm.name IS NULL OR LOWER(supm.name) != 'ital express')))"
             . " AND os4.date_add >= '{$start}' AND os4.date_add <= '{$end}')";
 
+        $refundedQuantitySubquery =
+            "IFNULL((SELECT SUM(osd5.product_quantity)"
+            . " FROM {$prefix}order_slip_detail osd5"
+            . " INNER JOIN {$prefix}order_slip os5 ON os5.id_order_slip = osd5.id_order_slip"
+            . " WHERE osd5.id_order_detail = od5.id_order_detail"
+            . " AND os5.date_add >= '{$start}' AND os5.date_add <= '{$end}'), 0)";
+
         $missingSupplierPurchaseSubquery =
-            "(SELECT IFNULL(SUM(od5.product_quantity * COALESCE(ps5.product_supplier_price_te, 0)), 0)"
+            "(SELECT IFNULL(SUM(GREATEST(od5.product_quantity - ({$refundedQuantitySubquery}), 0)"
+            . " * COALESCE(ps5.product_supplier_price_te, 0)), 0)"
             . " FROM {$prefix}order_detail od5"
             . " LEFT JOIN {$prefix}product p5 ON p5.id_product = od5.product_id"
             . " LEFT JOIN {$prefix}supplier sup5 ON sup5.id_supplier = p5.id_supplier"
