@@ -263,8 +263,8 @@ class KpiReportService
         });
 
         return $rows;
-
     }
+
     /**
      * KPI clients pour un mois donné vs N-1 (même mois, année précédente).
      * Si $ytd = true, la période N va du 1er janvier jusqu'à la fin du mois sélectionné (cumul YTD).
