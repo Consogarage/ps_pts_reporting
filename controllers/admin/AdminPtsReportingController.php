@@ -702,8 +702,9 @@ class AdminPtsReportingController extends ModuleAdminController
         $out = fopen('php://output', 'w');
         fputcsv($out, [
             'reference commande',
+            'numero facture / avoir',
             'date commande',
-            'date facture',
+            'date facture / avoir',
             'date expedition',
             'ca',
             'depannage',
@@ -717,6 +718,7 @@ class AdminPtsReportingController extends ModuleAdminController
         foreach ($rows as $row) {
             fputcsv($out, [
                 $row['order_reference'],
+                $row['document_number'],
                 $row['order_date'],
                 $row['invoice_date'],
                 $row['shipping_date'],

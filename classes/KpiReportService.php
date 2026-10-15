@@ -42,11 +42,233 @@ class KpiReportService
     }
 
     /**
-     * Récupère les commandes facturées dans la période donnée (via ps_order_invoice),
-     * avec le CA HT, le dépannage proportionnel et les références fournisseur.
-     * Utilisé pour le tableau backoffice.
+     * Récupère les lignes du reporting CA / marge pour la période :
+     * - une ligne par commande facturée dans la période (CA produits HT complet, avoirs non déduits) ;
+     * - une ligne négative par avoir créé dans la période, quelle que soit la date de la facture d'origine.
+     * Coefficient dépannage : $depannageRate hors ITAL EXPRESS, 0 pour ITAL EXPRESS (marge brute) ;
+     * marge nette sans coefficient.
      */
     private function fetchOrderRowsByInvoicePeriod($startDate, $endDate, $depannageRate = 1.06)
+    {
+        $start = pSQL($startDate . ' 00:00:00');
+        $end = pSQL($endDate . ' 23:59:59');
+        $prefix = _DB_PREFIX_;
+        $depannageRate = (float) $depannageRate;
+        $idLang = (int) $this->context->language->id;
+        $invoicePrefix = (string) Configuration::get('PS_INVOICE_PREFIX', $idLang);
+        $slipPrefix = (string) Configuration::get('PS_CREDIT_SLIP_PREFIX', $idLang);
+
+        // Part de la ligne de commande fournisseur imputable à la commande client
+        // (une ligne fournisseur peut être partagée entre plusieurs commandes).
+        $proportion = function ($alias) {
+            return "((LENGTH(IFNULL({$alias}.customer_id_orders, '')) - LENGTH(REPLACE(IFNULL({$alias}.customer_id_orders, ''), CONCAT('|', o.id_order, '|'), ''))) / LENGTH(CONCAT('|', o.id_order, '|')))"
+                . " / (CASE WHEN TRIM(BOTH '|' FROM IFNULL({$alias}.customer_id_orders, '')) = '' THEN 1"
+                . " ELSE (LENGTH(TRIM(BOTH '|' FROM {$alias}.customer_id_orders)) - LENGTH(REPLACE(TRIM(BOTH '|' FROM {$alias}.customer_id_orders), '|', '')) + 1)"
+                . ' END)';
+        };
+
+        $depannagePurchaseSubquery = function ($alias, $italOnly) use ($prefix, $proportion) {
+            $supplierFilter = $italOnly
+                ? "LOWER(sup_{$alias}.name) = 'ital express'"
+                : "(sup_{$alias}.name IS NULL OR LOWER(sup_{$alias}.name) != 'ital express')";
+
+            return "(SELECT IFNULL(SUM({$alias}.unit_price_te * COALESCE(NULLIF({$alias}.real_quantity, 0), {$alias}.quantity) * ({$proportion($alias)})), 0)"
+                . " FROM {$prefix}wkdelivery_order_detail {$alias}"
+                . " INNER JOIN {$prefix}wkdelivery_orders wo_{$alias} ON wo_{$alias}.id_wkdelivery_orders = {$alias}.id_delivery"
+                . " LEFT JOIN {$prefix}supplier sup_{$alias} ON sup_{$alias}.id_supplier = wo_{$alias}.id_supplier"
+                . " WHERE FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM {$alias}.customer_id_orders), '|', ','))"
+                . " AND {$supplierFilter})";
+        };
+
+        // Produits hors ITAL EXPRESS sans commande fournisseur liée : coût au prix fournisseur.
+        $missingSupplierPurchaseSubquery =
+            "(SELECT IFNULL(SUM(od5.product_quantity * COALESCE(ps5.product_supplier_price_te, 0)), 0)"
+            . " FROM {$prefix}order_detail od5"
+            . " LEFT JOIN {$prefix}product p5 ON p5.id_product = od5.product_id"
+            . " LEFT JOIN {$prefix}supplier sup5 ON sup5.id_supplier = p5.id_supplier"
+            . " LEFT JOIN {$prefix}product_supplier ps5 ON ps5.id_product = od5.product_id"
+            . " AND COALESCE(ps5.id_product_attribute, 0) = COALESCE(od5.product_attribute_id, 0)"
+            . " AND ps5.id_supplier = p5.id_supplier"
+            . " WHERE od5.id_order = o.id_order"
+            . " AND NOT EXISTS (SELECT 1 FROM {$prefix}wkdelivery_order_detail wlink5"
+            . " WHERE wlink5.id_product = od5.product_id"
+            . " AND COALESCE(wlink5.id_product_attribute, 0) = COALESCE(od5.product_attribute_id, 0)"
+            . " AND FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wlink5.customer_id_orders), '|', ',')))"
+            . " AND (sup5.name IS NULL OR LOWER(sup5.name) != 'ital express'))";
+
+        $invoiceInPeriod = "oi1.id_order = o.id_order AND oi1.date_add >= '{$start}' AND oi1.date_add <= '{$end}'";
+
+        $sql = new DbQuery();
+        $sql->select('o.id_order');
+        $sql->select('o.reference AS order_reference');
+        $sql->select('DATE(o.date_add) AS order_day');
+        $sql->select("(SELECT DATE(MIN(oi1.date_add)) FROM {$prefix}order_invoice oi1 WHERE {$invoiceInPeriod}) AS invoice_day");
+        $sql->select("(SELECT MIN(oi1.number) FROM {$prefix}order_invoice oi1 WHERE {$invoiceInPeriod}) AS invoice_number");
+        $sql->select(
+            "(SELECT DATE(MIN(oh.date_add)) FROM {$prefix}order_history oh"
+            . ' WHERE oh.id_order = o.id_order AND oh.id_order_state = 4) AS shipping_day'
+        );
+        $sql->select(
+            "(SELECT IFNULL(SUM(od.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
+            . " FROM {$prefix}order_detail od WHERE od.id_order = o.id_order) AS ca_ht"
+        );
+        $sql->select(
+            "(SELECT IFNULL(SUM(od.total_price_tax_excl"
+            . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
+            . " FROM {$prefix}order_detail od"
+            . " LEFT JOIN {$prefix}product p ON p.id_product = od.product_id"
+            . " LEFT JOIN {$prefix}supplier sup ON sup.id_supplier = p.id_supplier"
+            . " WHERE od.id_order = o.id_order"
+            . " AND LOWER(sup.name) = 'ital express') AS ca_ital_ht"
+        );
+        $sql->select($depannagePurchaseSubquery('wod2', false) . ' AS depannage_ht_raw');
+        $sql->select($depannagePurchaseSubquery('wod6', true) . ' AS ital_purchase_ht_raw');
+        $sql->select($missingSupplierPurchaseSubquery . ' AS missing_supplier_purchase_ht');
+        $sql->select(
+            "IFNULL(GROUP_CONCAT(DISTINCT CONCAT(wo.reference, ' [', COALESCE(NULLIF(wod.real_quantity, 0), wod.quantity), 'x ',"
+            . " COALESCE(NULLIF(wod.supplier_reference, ''), CONCAT('#', wod.id_product, IF(wod.id_product_attribute > 0, CONCAT('-', wod.id_product_attribute), ''))),"
+            . " ']') ORDER BY wo.reference SEPARATOR ' | '), '') AS supplier_order_refs"
+        );
+        $sql->from('orders', 'o');
+        $sql->leftJoin(
+            'wkdelivery_order_detail',
+            'wod',
+            "FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wod.customer_id_orders), '|', ','))"
+        );
+        $sql->leftJoin('wkdelivery_orders', 'wo', 'wo.id_wkdelivery_orders = wod.id_delivery');
+        $sql->where("EXISTS (SELECT 1 FROM {$prefix}order_invoice oi1 WHERE {$invoiceInPeriod})");
+        $sql->where('o.current_state IN (4, 5, 7, 18)');
+        $sql->groupBy('o.id_order');
+
+        $results = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
+        $rows = [];
+
+        foreach ((array) $results as $result) {
+            $caHt = (float) $result['ca_ht'];
+            $caItalHt = (float) $result['ca_ital_ht'];
+            $depannageHtRaw = (float) $result['depannage_ht_raw'];
+            $italPurchaseHtRaw = (float) $result['ital_purchase_ht_raw'];
+            $missingSupplierPurchaseHt = (float) $result['missing_supplier_purchase_ht'];
+            $depannageHt = $depannageHtRaw * $depannageRate;
+
+            $rows[] = [
+                'line_type' => 'commande',
+                'document_number' => $result['invoice_number'] ? $invoicePrefix . sprintf('%06d', (int) $result['invoice_number']) : '',
+                'order_date' => $result['order_day'],
+                'order_reference' => $result['order_reference'],
+                'invoice_date' => $result['invoice_day'] ?: $result['order_day'],
+                'shipping_date' => $result['shipping_day'] ?: '',
+                'ca_ht' => $caHt,
+                'depannage_ht' => $depannageHt,
+                'supplier_order_refs' => (string) $result['supplier_order_refs'],
+                // Produits ITAL EXPRESS : coefficient 0, ils n'apportent pas de marge brute.
+                'mb_ht' => $caHt - $caItalHt - $depannageHt - $missingSupplierPurchaseHt,
+                'marge_nette' => $caHt - $depannageHtRaw - $italPurchaseHtRaw - $missingSupplierPurchaseHt,
+            ];
+        }
+
+        // Une ligne par avoir créé dans la période : CA produits HT en négatif,
+        // coût d'achat des pièces remboursées réintégré avec les mêmes coefficients que la commande.
+        $linkedPurchaseFilter = "wodr.id_product = od.product_id"
+            . " AND COALESCE(wodr.id_product_attribute, 0) = COALESCE(od.product_attribute_id, 0)"
+            . " AND FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wodr.customer_id_orders), '|', ','))";
+
+        $slipDetailsSql = "SELECT
+                os.id_order_slip,
+                DATE(os.date_add) AS slip_day,
+                o.reference AS order_reference,
+                DATE(o.date_add) AS order_day,
+                osd.product_quantity AS refunded_quantity,
+                (osd.total_price_tax_excl - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)) AS refunded_ht,
+                (SELECT wodr.unit_price_te FROM {$prefix}wkdelivery_order_detail wodr
+                    WHERE {$linkedPurchaseFilter}
+                    ORDER BY wodr.id_wkdelivery_order_detail DESC LIMIT 1) AS linked_unit_price,
+                (SELECT LOWER(supr.name) FROM {$prefix}wkdelivery_order_detail wodr
+                    INNER JOIN {$prefix}wkdelivery_orders wor ON wor.id_wkdelivery_orders = wodr.id_delivery
+                    LEFT JOIN {$prefix}supplier supr ON supr.id_supplier = wor.id_supplier
+                    WHERE {$linkedPurchaseFilter}
+                    ORDER BY wodr.id_wkdelivery_order_detail DESC LIMIT 1) AS linked_supplier,
+                COALESCE(ps.product_supplier_price_te, 0) AS catalog_unit_price,
+                LOWER(sup.name) AS product_supplier
+            FROM {$prefix}order_slip os
+            INNER JOIN {$prefix}orders o ON o.id_order = os.id_order
+            INNER JOIN {$prefix}order_slip_detail osd ON osd.id_order_slip = os.id_order_slip
+            INNER JOIN {$prefix}order_detail od ON od.id_order_detail = osd.id_order_detail
+            LEFT JOIN {$prefix}product p ON p.id_product = od.product_id
+            LEFT JOIN {$prefix}supplier sup ON sup.id_supplier = p.id_supplier
+            LEFT JOIN {$prefix}product_supplier ps ON ps.id_product = od.product_id
+                AND COALESCE(ps.id_product_attribute, 0) = COALESCE(od.product_attribute_id, 0)
+                AND ps.id_supplier = p.id_supplier
+            WHERE os.date_add >= '{$start}'
+                AND os.date_add <= '{$end}'
+            ORDER BY os.id_order_slip ASC";
+
+        $slips = [];
+        foreach ((array) Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($slipDetailsSql) as $detail) {
+            $idSlip = (int) $detail['id_order_slip'];
+            if (!isset($slips[$idSlip])) {
+                $slips[$idSlip] = [
+                    'slip_day' => $detail['slip_day'],
+                    'order_reference' => $detail['order_reference'],
+                    'order_day' => $detail['order_day'],
+                    'refunded_ht' => 0.0,
+                    'refunded_ital_ht' => 0.0,
+                    'depannage_ht_raw' => 0.0,
+                    'ital_purchase_ht_raw' => 0.0,
+                    'catalog_purchase_ht' => 0.0,
+                ];
+            }
+
+            $quantity = (float) $detail['refunded_quantity'];
+            $slips[$idSlip]['refunded_ht'] += (float) $detail['refunded_ht'];
+            if ($detail['product_supplier'] === 'ital express') {
+                $slips[$idSlip]['refunded_ital_ht'] += (float) $detail['refunded_ht'];
+            }
+
+            if ($detail['linked_unit_price'] !== null) {
+                // Pièce achetée en dépannage : même règle que sur la ligne de commande.
+                $cost = $quantity * (float) $detail['linked_unit_price'];
+                if ($detail['linked_supplier'] === 'ital express') {
+                    $slips[$idSlip]['ital_purchase_ht_raw'] += $cost;
+                } else {
+                    $slips[$idSlip]['depannage_ht_raw'] += $cost;
+                }
+            } elseif ($detail['product_supplier'] !== 'ital express') {
+                $slips[$idSlip]['catalog_purchase_ht'] += $quantity * (float) $detail['catalog_unit_price'];
+            }
+        }
+
+        foreach ($slips as $idSlip => $slip) {
+            $caHt = -$slip['refunded_ht'];
+            $depannageHt = $slip['depannage_ht_raw'] * $depannageRate;
+
+            $rows[] = [
+                'line_type' => 'avoir',
+                'document_number' => $slipPrefix . sprintf('%06d', $idSlip),
+                'order_date' => $slip['order_day'],
+                'order_reference' => $slip['order_reference'],
+                'invoice_date' => $slip['slip_day'],
+                'shipping_date' => '',
+                'ca_ht' => $caHt,
+                'depannage_ht' => -$depannageHt,
+                'supplier_order_refs' => '',
+                'mb_ht' => $caHt + $slip['refunded_ital_ht'] + $depannageHt + $slip['catalog_purchase_ht'],
+                'marge_nette' => $caHt + $slip['depannage_ht_raw'] + $slip['ital_purchase_ht_raw'] + $slip['catalog_purchase_ht'],
+            ];
+        }
+
+        usort($rows, function ($left, $right) {
+            return strcmp($left['invoice_date'] . $left['document_number'], $right['invoice_date'] . $right['document_number']);
+        });
+
+        return $rows;
+    }
+
+    /**
+     * Ancienne version (avoirs déduits dans la ligne de commande), à supprimer après validation.
+     */
+    private function fetchOrderRowsByInvoicePeriodLegacy($startDate, $endDate, $depannageRate = 1.06)
     {
         $start = pSQL($startDate . ' 00:00:00');
         $end = pSQL($endDate . ' 23:59:59');
@@ -749,6 +971,8 @@ class KpiReportService
             $margeNette = (float) $row['marge_nette'];
 
             $rows[] = [
+                'line_type' => $row['line_type'] ?? 'commande',
+                'document_number' => $row['document_number'] ?? '',
                 'order_date' => $this->formatDate($row['order_date']),
                 'order_reference' => $row['order_reference'],
                 'invoice_date' => $this->formatDate($row['invoice_date']),

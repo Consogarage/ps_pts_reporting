@@ -129,6 +129,7 @@
                     <thead>
                         <tr>
                             <th>{l s='Reference commande' mod='ps_pts_reporting'}</th>
+                            <th>{l s='N° facture / avoir' mod='ps_pts_reporting'}</th>
                             <th>{l s='Date commande' mod='ps_pts_reporting'}</th>
                             <th>{l s='Date facture' mod='ps_pts_reporting'}</th>
                             <th>{l s='Date expédition' mod='ps_pts_reporting'}</th>
@@ -143,8 +144,9 @@
                     </thead>
                     <tbody>
                         {foreach from=$rows item=row}
-                            <tr>
+                            <tr{if $row.line_type == 'avoir'} class="text-danger"{/if}>
                                 <td>{$row.order_reference}</td>
+                                <td>{$row.document_number}</td>
                                 <td>{$row.order_date}</td>
                                 <td>{$row.invoice_date}</td>
                                 <td>{$row.shipping_date}</td>
