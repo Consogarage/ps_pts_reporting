@@ -188,7 +188,7 @@ class KpiReportService
                 o.reference AS order_reference,
                 DATE(o.date_add) AS order_day,
                 osd.product_quantity AS refunded_quantity,
-                (osd.total_price_tax_excl - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)) AS refunded_ht,
+                GREATEST(0, osd.total_price_tax_excl - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)) AS refunded_ht,
                 (od.unit_price_tax_excl - COALESCE(od.product_consigne_tax_excl, 0)) AS unit_part_price,
                 (SELECT wodr.unit_price_te FROM {$prefix}wkdelivery_order_detail wodr
                     WHERE {$linkedPurchaseFilter}

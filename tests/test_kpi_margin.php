@@ -31,6 +31,8 @@ $expectedByMonth = [
         // Avoirs mêlant pièce remboursée et consigne seule : la consigne ne réintègre aucun coût.
         'C4272|avoir' => ['ca_ht' => -79.43, 'mb_ht' => 0.00, 'marge_nette' => -32.20],
         'C4290|avoir' => ['ca_ht' => -150.00, 'mb_ht' => 0.00, 'marge_nette' => -73.44],
+        // Avoir de consigne dont le montant est inférieur à la consigne x quantité : CA ramené à 0.
+        'C4356|avoir' => ['ca_ht' => 0.00, 'mb_ht' => 0.00, 'marge_nette' => 0.00],
     ],
 ];
 
