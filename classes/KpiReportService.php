@@ -113,6 +113,8 @@ class KpiReportService
             . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
             . " FROM {$prefix}order_detail od WHERE od.id_order = o.id_order) AS ca_ht"
         );
+        // Produit ITAL EXPRESS : fournisseur de l'achat dépannage lié s'il existe,
+        // sinon fournisseur par défaut du produit (les produits de dépannage n'en ont pas).
         $sql->select(
             "(SELECT IFNULL(SUM(od.total_price_tax_excl"
             . " - (COALESCE(od.product_consigne_tax_excl, 0) * od.product_quantity)), 0)"
@@ -120,7 +122,13 @@ class KpiReportService
             . " LEFT JOIN {$prefix}product p ON p.id_product = od.product_id"
             . " LEFT JOIN {$prefix}supplier sup ON sup.id_supplier = p.id_supplier"
             . " WHERE od.id_order = o.id_order"
-            . " AND LOWER(sup.name) = 'ital express') AS ca_ital_ht"
+            . " AND LOWER(COALESCE((SELECT supl.name FROM {$prefix}wkdelivery_order_detail wl"
+            . " INNER JOIN {$prefix}wkdelivery_orders wol ON wol.id_wkdelivery_orders = wl.id_delivery"
+            . " INNER JOIN {$prefix}supplier supl ON supl.id_supplier = wol.id_supplier"
+            . " WHERE wl.id_product = od.product_id"
+            . " AND COALESCE(wl.id_product_attribute, 0) = COALESCE(od.product_attribute_id, 0)"
+            . " AND FIND_IN_SET(o.id_order, REPLACE(TRIM(BOTH '|' FROM wl.customer_id_orders), '|', ','))"
+            . " ORDER BY wl.id_wkdelivery_order_detail DESC LIMIT 1), sup.name)) = 'ital express') AS ca_ital_ht"
         );
         $sql->select($depannagePurchaseSubquery('wod2', false) . ' AS depannage_ht_raw');
         $sql->select($depannagePurchaseSubquery('wod6', true) . ' AS ital_purchase_ht_raw');
@@ -181,6 +189,7 @@ class KpiReportService
                 DATE(o.date_add) AS order_day,
                 osd.product_quantity AS refunded_quantity,
                 (osd.total_price_tax_excl - (COALESCE(od.product_consigne_tax_excl, 0) * osd.product_quantity)) AS refunded_ht,
+                (od.unit_price_tax_excl - COALESCE(od.product_consigne_tax_excl, 0)) AS unit_part_price,
                 (SELECT wodr.unit_price_te FROM {$prefix}wkdelivery_order_detail wodr
                     WHERE {$linkedPurchaseFilter}
                     ORDER BY wodr.id_wkdelivery_order_detail DESC LIMIT 1) AS linked_unit_price,
@@ -220,22 +229,29 @@ class KpiReportService
                 ];
             }
 
+            $refundedHt = (float) $detail['refunded_ht'];
             $quantity = (float) $detail['refunded_quantity'];
-            $slips[$idSlip]['refunded_ht'] += (float) $detail['refunded_ht'];
-            if ($detail['product_supplier'] === 'ital express') {
-                $slips[$idSlip]['refunded_ital_ht'] += (float) $detail['refunded_ht'];
+            // Coût réintégré au prorata de la pièce réellement remboursée (hors consigne) :
+            // un avoir de consigne seule ne réintègre aucun coût, un remboursement total le coût complet.
+            $partTotal = $quantity * (float) $detail['unit_part_price'];
+            $refundRatio = $partTotal > 0 ? max(0.0, min(1.0, $refundedHt / $partTotal)) : 0.0;
+            $supplier = $detail['linked_supplier'] !== null ? $detail['linked_supplier'] : $detail['product_supplier'];
+
+            $slips[$idSlip]['refunded_ht'] += $refundedHt;
+            if ($supplier === 'ital express') {
+                $slips[$idSlip]['refunded_ital_ht'] += $refundedHt;
             }
 
             if ($detail['linked_unit_price'] !== null) {
                 // Pièce achetée en dépannage : même règle que sur la ligne de commande.
-                $cost = $quantity * (float) $detail['linked_unit_price'];
+                $cost = $quantity * (float) $detail['linked_unit_price'] * $refundRatio;
                 if ($detail['linked_supplier'] === 'ital express') {
                     $slips[$idSlip]['ital_purchase_ht_raw'] += $cost;
                 } else {
                     $slips[$idSlip]['depannage_ht_raw'] += $cost;
                 }
             } elseif ($detail['product_supplier'] !== 'ital express') {
-                $slips[$idSlip]['catalog_purchase_ht'] += $quantity * (float) $detail['catalog_unit_price'];
+                $slips[$idSlip]['catalog_purchase_ht'] += $quantity * (float) $detail['catalog_unit_price'] * $refundRatio;
             }
         }
 
