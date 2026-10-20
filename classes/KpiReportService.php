@@ -170,8 +170,8 @@ class KpiReportService
                 'ca_ht' => $caHt,
                 'depannage_ht' => $depannageHt,
                 'supplier_order_refs' => (string) $result['supplier_order_refs'],
-                // Produits ITAL EXPRESS : coefficient 0, ils n'apportent pas de marge brute.
-                'mb_ht' => $caHt - $caItalHt - $depannageHt - $missingSupplierPurchaseHt,
+                // Produits ITAL EXPRESS : coût d'achat sans majoration (coefficient 1,06 hors ITAL uniquement).
+                'mb_ht' => $caHt - $depannageHt - $italPurchaseHtRaw - $missingSupplierPurchaseHt,
                 'marge_nette' => $caHt - $depannageHtRaw - $italPurchaseHtRaw - $missingSupplierPurchaseHt,
             ];
         }
@@ -269,7 +269,7 @@ class KpiReportService
                 'ca_ht' => $caHt,
                 'depannage_ht' => -$depannageHt,
                 'supplier_order_refs' => '',
-                'mb_ht' => $caHt + $slip['refunded_ital_ht'] + $depannageHt + $slip['catalog_purchase_ht'],
+                'mb_ht' => $caHt + $depannageHt + $slip['ital_purchase_ht_raw'] + $slip['catalog_purchase_ht'],
                 'marge_nette' => $caHt + $slip['depannage_ht_raw'] + $slip['ital_purchase_ht_raw'] + $slip['catalog_purchase_ht'],
             ];
         }
