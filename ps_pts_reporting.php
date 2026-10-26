@@ -76,7 +76,7 @@ class Ps_Pts_Reporting extends Module
         return explode(',', $normalized);
     }
 
-    public function sendMonthlyReportToConfiguredEmails($filename, $csvContent)
+    public function sendMonthlyReportToConfiguredEmails($filename, $csvContent, $reportLabel = 'Rapport mensuel')
     {
         $emails = $this->getReportEmails();
         if (empty($emails)) {
@@ -85,8 +85,8 @@ class Ps_Pts_Reporting extends Module
         }
 
         $shopName = (string) Configuration::get('PS_SHOP_NAME');
-        $subject = sprintf('Rapport mensuel %s', $shopName !== '' ? $shopName : 'PTS');
-        $body = 'Veuillez trouver en piece jointe le rapport mensuel.';
+        $subject = sprintf('%s %s', $reportLabel, $shopName !== '' ? $shopName : 'PTS');
+        $body = sprintf('Veuillez trouver en piece jointe le fichier : %s.', $reportLabel);
         $sent = 0;
 
         $this->addPsLog(sprintf('Envoi rapport mensuel demarre. Fichier: %s, destinataires: %d', (string) $filename, count($emails)), 1);

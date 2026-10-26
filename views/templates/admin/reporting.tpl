@@ -63,6 +63,15 @@
                             {l s='Laisser vide pour ne pas envoyer de rapport par email' mod='ps_pts_reporting'}</p>
                     </div>
 
+                    <div class="form-group col-sm-12 col-md-6 pts-reporting-spaced-group">
+                        <label>
+                            <input type="checkbox" name="hors_ital" value="1" {if $hors_ital}checked{/if}>
+                            {l s='Hors dépannages ITAL EXPRESS' mod='ps_pts_reporting'}
+                        </label>
+                        <p class="help-block">
+                            {l s='Retire les pièces ITAL EXPRESS des commandes (CA et coût). Les avoirs restent complets.' mod='ps_pts_reporting'}</p>
+                    </div>
+
                     <div class="col-sm-12 pts-reporting-actions-row">
                         <button type="submit"
                             class="btn btn-default btn-block">{l s='Appliquer' mod='ps_pts_reporting'}</button>
@@ -96,6 +105,9 @@
                             <button type="submit" name="export_monthly" value="1" class="btn btn-info btn-block">
                                 {* {$export_monthly_label} *}
                                 Rapport mensuel (cumul)
+                            </button>
+                            <button type="submit" name="export_monthly_hors_ital" value="1" class="btn btn-default btn-block">
+                                {l s='Rapport mensuel hors ITAL EXPRESS' mod='ps_pts_reporting'}
                             </button>
 
                         </div>

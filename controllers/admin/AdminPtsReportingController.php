@@ -61,6 +61,9 @@ class AdminPtsReportingController extends ModuleAdminController
 
         $export = (int) Tools::getValue('export', 0);
         $exportMonthly = (int) Tools::getValue('export_monthly', 0);
+        $exportMonthlyHorsItal = (int) Tools::getValue('export_monthly_hors_ital', 0);
+        // Rapport hors ITAL EXPRESS : pièces ITAL retirées des lignes de commande, avoirs complets
+        $horsItal = (int) Tools::getValue('hors_ital', 0) === 1;
 
         $monthFrom = max(1, min(12, $monthFrom));
         $monthTo = max(1, min(12, $monthTo));
@@ -115,12 +118,15 @@ class AdminPtsReportingController extends ModuleAdminController
         if ($exportMonthly === 1) {
             $this->exportMonthlyCsv($depannageRate, $reportMonthlyYear, $reportMonthlyMonth);
         }
+        if ($exportMonthlyHorsItal === 1) {
+            $this->exportMonthlyCsv($depannageRate, $reportMonthlyYear, $reportMonthlyMonth, true);
+        }
 
         $service = new KpiReportService($this->context);
-        $rows = $service->getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate);
+        $rows = $service->getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate, $horsItal);
 
         if ($export === 1) {
-            $this->exportCsv($rows, $yearFrom, $monthFrom, $yearTo, $monthTo);
+            $this->exportCsv($rows, $yearFrom, $monthFrom, $yearTo, $monthTo, $horsItal);
         }
 
         // Onglet KPI clients
@@ -177,6 +183,7 @@ class AdminPtsReportingController extends ModuleAdminController
             'month_from' => $monthFrom,
             'month_to' => $monthTo,
             'depannage_rate' => number_format($depannageRate, 2, '.', ''),
+            'hors_ital' => $horsItal,
             'report_emails' => $reportEmails,
             'months' => $months,
             'years' => $years,
@@ -190,6 +197,7 @@ class AdminPtsReportingController extends ModuleAdminController
                 'month_from' => $monthFrom,
                 'month_to' => $monthTo,
                 'depannage_rate' => number_format($depannageRate, 2, '.', ''),
+                'hors_ital' => $horsItal ? 1 : 0,
                 'export' => 1,
             ]),
             'export_monthly_label' => $exportMonthlyLabel,
@@ -686,12 +694,13 @@ class AdminPtsReportingController extends ModuleAdminController
         exit;
     }
 
-    private function exportCsv(array $rows, $yearFrom, $monthFrom, $yearTo, $monthTo)
+    private function exportCsv(array $rows, $yearFrom, $monthFrom, $yearTo, $monthTo, $horsItal = false)
     {
+        $prefix = $horsItal ? 'pts_kpi_hors_ital' : 'pts_kpi';
         if ($yearFrom === $yearTo && $monthFrom === $monthTo) {
-            $filename = sprintf('pts_kpi_%04d_%02d.csv', $yearFrom, $monthFrom);
+            $filename = sprintf('%s_%04d_%02d.csv', $prefix, $yearFrom, $monthFrom);
         } else {
-            $filename = sprintf('pts_kpi_%04d_%02d-%04d_%02d.csv', $yearFrom, $monthFrom, $yearTo, $monthTo);
+            $filename = sprintf('%s_%04d_%02d-%04d_%02d.csv', $prefix, $yearFrom, $monthFrom, $yearTo, $monthTo);
         }
 
         header('Content-Type: text/csv; charset=UTF-8');
@@ -736,7 +745,7 @@ class AdminPtsReportingController extends ModuleAdminController
         exit;
     }
 
-    private function exportMonthlyCsv($depannageRate, $year = null, $month = null)
+    private function exportMonthlyCsv($depannageRate, $year = null, $month = null, $horsItal = false)
     {
         if ($year === null || $month === null) {
             $date = new DateTime('first day of last month');
@@ -745,7 +754,7 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         $service = new KpiReportService($this->context);
-        $rows = $service->getInvoicedKpisForMonth($year, $month, $depannageRate);
+        $rows = $service->getInvoicedKpisForMonth($year, $month, $depannageRate, $horsItal);
 
         $totalCaHt = 0.0;
         $totalDepannageHt = 0.0;
@@ -762,7 +771,8 @@ class AdminPtsReportingController extends ModuleAdminController
         $pctMbHt = $totalCaHt > 0 ? ($totalMbHt * 100 / $totalCaHt) : 0;
         $pctMargeNette = $totalCaHt > 0 ? ($totalMargeNette * 100 / $totalCaHt) : 0;
 
-        $filename = sprintf('pts_rapport_mensuel_%04d_%02d.csv', $year, $month);
+        $filename = sprintf($horsItal ? 'pts_rapport_mensuel_hors_ital_%04d_%02d.csv' : 'pts_rapport_mensuel_%04d_%02d.csv', $year, $month);
+        $reportLabel = $horsItal ? 'Rapport mensuel hors ITAL EXPRESS' : 'Rapport mensuel';
 
         $out = fopen('php://temp', 'r+');
         fputcsv($out, [
@@ -801,11 +811,11 @@ class AdminPtsReportingController extends ModuleAdminController
         }
 
         if (!empty($configuredEmails) && $module && method_exists($module, 'sendMonthlyReportToConfiguredEmails')) {
-            $sent = (int) $module->sendMonthlyReportToConfiguredEmails($filename, $csvContent);
+            $sent = (int) $module->sendMonthlyReportToConfiguredEmails($filename, $csvContent, $reportLabel);
         }
 
         if ($sent > 0) {
-            $this->confirmations[] = sprintf('Rapport mensuel envoye a %d adresse(s).', $sent);
+            $this->confirmations[] = sprintf('%s envoye a %d adresse(s).', $reportLabel, $sent);
         } elseif (!empty($configuredEmails)) {
             $this->warnings[] = 'Emails trouves mais envoi echoue. Verifiez la configuration email/smtp de PrestaShop.';
         } else {

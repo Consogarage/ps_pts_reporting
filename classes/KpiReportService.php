@@ -14,7 +14,7 @@ class KpiReportService
         return $this->getDailyKpisForPeriod($year, $month, $year, $month);
     }
 
-    public function getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate = 1.06)
+    public function getDailyKpisForPeriod($yearFrom, $monthFrom, $yearTo, $monthTo, $depannageRate = 1.06, $excludeItal = false)
     {
         $startDate = sprintf('%04d-%02d-01', $yearFrom, $monthFrom);
         $endDate = $this->getMonthEndDate($yearTo, $monthTo);
@@ -36,7 +36,7 @@ class KpiReportService
             $endDate = date('Y-m-d');
         }
 
-        $rows = $this->fetchOrderRowsByInvoicePeriod($startDate, $endDate, (float) $depannageRate);
+        $rows = $this->fetchOrderRowsByInvoicePeriod($startDate, $endDate, (float) $depannageRate, (bool) $excludeItal);
 
         return $this->computeOrderRows($rows);
     }
@@ -47,8 +47,10 @@ class KpiReportService
      * - une ligne négative par avoir créé dans la période, quelle que soit la date de la facture d'origine.
      * Coefficient dépannage : $depannageRate hors ITAL EXPRESS, 0 pour ITAL EXPRESS (marge brute) ;
      * marge nette sans coefficient.
+     * $excludeItal (rapport hors ITAL EXPRESS) : les pièces ITAL EXPRESS sont retirées des lignes de commande
+     * (CA et coût) ; une commande 100 % ITAL EXPRESS sort du rapport. Les lignes d'avoir restent complètes.
      */
-    private function fetchOrderRowsByInvoicePeriod($startDate, $endDate, $depannageRate = 1.06)
+    private function fetchOrderRowsByInvoicePeriod($startDate, $endDate, $depannageRate = 1.06, $excludeItal = false)
     {
         $start = pSQL($startDate . ' 00:00:00');
         $end = pSQL($endDate . ' 23:59:59');
@@ -159,6 +161,16 @@ class KpiReportService
             $italPurchaseHtRaw = (float) $result['ital_purchase_ht_raw'];
             $missingSupplierPurchaseHt = (float) $result['missing_supplier_purchase_ht'];
             $depannageHt = $depannageHtRaw * $depannageRate;
+
+            if ($excludeItal) {
+                $isItalOnly = $caItalHt > 0 && abs($caHt - $caItalHt) < 0.005
+                    && $depannageHtRaw == 0 && $missingSupplierPurchaseHt == 0;
+                if ($isItalOnly) {
+                    continue;
+                }
+                $caHt -= $caItalHt;
+                $italPurchaseHtRaw = 0.0;
+            }
 
             $rows[] = [
                 'line_type' => 'commande',
@@ -526,7 +538,7 @@ class KpiReportService
         return $this->computeOrderRows($dailyRows);
     }
 
-    public function getInvoicedKpisForMonth($year, $month, $depannageRate = 1.06)
+    public function getInvoicedKpisForMonth($year, $month, $depannageRate = 1.06, $excludeItal = false)
     {
         $startDate = sprintf('%04d-%02d-01', $year, $month);
         $endDate = $this->getMonthEndDate($year, $month);
@@ -535,7 +547,7 @@ class KpiReportService
             $endDate = date('Y-m-d');
         }
 
-        $rows = $this->fetchOrderRowsByInvoicePeriod($startDate, $endDate, (float) $depannageRate);
+        $rows = $this->fetchOrderRowsByInvoicePeriod($startDate, $endDate, (float) $depannageRate, (bool) $excludeItal);
 
         return $this->computeOrderRows($rows);
     }
